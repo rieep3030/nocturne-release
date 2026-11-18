@@ -1,5 +1,6 @@
 // NOCTURNE スマホ単体版（PC 版 public/app.js を元に、通信を端末内サーバーに差し替えたもの）
 import { createLocalServer } from './local-server.js';
+import { sfx } from './sfx.js';
 const $ = (s, r = document) => r.querySelector(s);
 const el = (tag, cls, text) => {
   const e = document.createElement(tag);
@@ -506,6 +507,20 @@ function renderRoom(prev) {
   renderMe();
   update3D(prev, t);
   dealFromTesseract();
+  tableSounds(prev, t);
+}
+
+// 状態の変化に合わせて効果音を鳴らす（再描画だけのとき prev は null なので鳴らない）
+function tableSounds(prev, t) {
+  if (!prev) return;
+  if (prev.handNo !== t.handNo) sfx.play('shuffle');
+  t.seats.forEach((s, i) => {
+    const ps = prev.seats[i];
+    if (!s || !ps || s.lastAction === ps.lastAction) return;
+    if (s.lastAction === 'フォールド') sfx.play('shove');
+    else if (s.lastAction === 'チェック') sfx.play('knock');
+  });
+  if (!prev.actions && t.actions) sfx.play('turn');
 }
 
 function renderSeats(t) {
@@ -665,6 +680,7 @@ function dealFromTesseract() {
     c.style.setProperty('--dd', `${k * 70}ms`);
     c.classList.remove('pending');
     c.classList.add('deal');
+    sfx.play(c.closest('#board') ? 'place' : 'slide', { delay: k * 70 + 250 }); // 札が着く頃に鳴らす
   });
   stage?.pulse(1);
 }
@@ -673,6 +689,7 @@ function doAct(kind) {
   const t = S.table;
   const a = t && t.actions;
   if (!a) return;
+  sfx.play('click');
   if (kind === 'fold') send({ t: 'action', type: 'fold' });
   else if (kind === 'call') send({ t: 'action', type: a.canCheck ? 'check' : 'call' });
   else if (kind === 'raise') {
@@ -836,6 +853,13 @@ function bind() {
     if (S.logOpen && S.table) renderLog(S.table);
   };
   $('#b-log-close').onclick = () => { S.logOpen = false; $('#logpanel').hidden = true; };
+  const sound = $('#b-sound');
+  const syncSound = () => {
+    sound.textContent = sfx.isMuted() ? '音：オフ' : '音：オン';
+    sound.setAttribute('aria-pressed', String(!sfx.isMuted()));
+  };
+  sound.onclick = () => { sfx.setMuted(!sfx.isMuted()); syncSound(); sfx.play('click'); };
+  syncSound();
   document.addEventListener('keydown', e => {
     if (S.screen !== 'room' || !S.table || !S.table.actions || $('#dlg').open) return;
     if (e.target.matches('input:not([type=range]), select, textarea')) return;
@@ -866,7 +890,8 @@ async function init() {
   try {
     const m = await import('./chips-physics.js');
     stage = new m.TableStage($('#stage'));
-    if (location.hash === '#debug') window.__nocturne = { stage, S };
+    stage.onSound = (name, opts) => sfx.play(name, opts);
+    if (location.hash === '#debug') window.__nocturne = { stage, S, sfx };
     stage.setMode(S.screen === 'gate' ? 'showcase' : S.screen === 'room' ? 'table' : 'lounge');
     if (S.screen === 'room' && S.table) { computeLayout(); renderRoom(null); }
   } catch (e) {

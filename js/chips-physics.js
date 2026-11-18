@@ -484,6 +484,13 @@ export class TableStage {
     body.angularVelocity.set((Math.random() - 0.5) * sp, (Math.random() - 0.5) * sp, (Math.random() - 0.5) * sp);
     this.world.addBody(body);
     const chip = { mesh, body, born: performance.now(), grow: opts.grow || 0 };
+    // 当たった瞬間に音を出す（cannon-es の collide は接触の始まりにだけ来る）
+    body.addEventListener('collide', e => {
+      if (!this.onSound || (opts.silent && performance.now() - chip.born < 700)) return;
+      const v = Math.abs(e.contact.getImpactVelocityAlongNormal());
+      if (v < 1.2) return;
+      this.onSound(e.body.mass === 0 ? 'lay' : 'collide', { vol: Math.min(1, v / 8) });
+    });
     if (chip.grow) mesh.scale.setScalar(0.15);
     this.chips.push(chip);
     // 生成直後はチップ同士の衝突を切り、重なりによる弾けを防ぐ
@@ -526,7 +533,12 @@ export class TableStage {
       if (i >= 0) this.chips.splice(i, 1);
       this.fx.push({ kind: 'absorb', mesh: c.mesh, from: c.mesh.position.clone(), t0: performance.now() + delay + k * 18, dur: 520 });
     });
-    if (list.length) this.schedule(delay + 250, () => this.pulse(0.8));
+    if (list.length) {
+      // clearPiles は予約を消すので、遅れのないときはその場で鳴らす
+      if (delay > 0) this.schedule(delay, () => this.onSound?.('stack', { vol: 0.8 }));
+      else this.onSound?.('stack', { vol: 0.8 });
+      this.schedule(delay + 250, () => this.pulse(0.8));
+    }
   }
 
   vanish(p) {
@@ -542,7 +554,7 @@ export class TableStage {
       const a = (i / 6) * Math.PI * 2 + layer * 0.5;
       const r = i === 0 ? 0 : 0.86;
       const pos = new THREE.Vector3(anchor.x + Math.cos(a) * r, 0.42 + layer * 0.88, anchor.z + Math.sin(a) * r);
-      p.chips.push(this.makeChip(v, pos, { spin: 0.5, ghostMs: 0 }));
+      p.chips.push(this.makeChip(v, pos, { spin: 0.5, ghostMs: 0, silent: true }));
     });
     p.amount = amount;
   }
@@ -555,6 +567,7 @@ export class TableStage {
       this.schedule(k * 55, () => {
         p.pending--;
         if (p.gen !== gen) return; // 投げ終わる前に回収された
+        if (k === 0) this.onSound?.('handle');
         const s = this.jitter(from, 0.2).setY(0.9);
         // 着地後に少し転がるので、目標の手前を狙う
         const aim = new THREE.Vector3().lerpVectors(from, to, 0.86);

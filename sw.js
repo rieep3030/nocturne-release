@@ -1,6 +1,6 @@
 // オフライン用 Service Worker
 // 更新を公開するときは VERSION を変える（変えないと端末に古い版が残る）。
-const VERSION = 'nocturne-mobile-v1';
+const VERSION = 'nocturne-mobile-v2';
 const FONTS = 'nocturne-fonts-v1';
 
 const CORE = [
@@ -27,7 +27,14 @@ const CORE = [
   './vendor/three/examples/jsm/lines/LineMaterial.js',
   './vendor/cannon-es/cannon-es.js',
   './icons/icon-192.png', './icons/icon-512.png',
+  './js/sfx.js',
 ];
+// 効果音（js/sfx.js の SFX_FILES と同じ内容にする）
+const SFX = { 'card-shuffle': 0, 'card-slide': 8, 'card-place': 4, 'card-shove': 4, 'chip-lay': 3, 'chips-collide': 4, 'chips-handle': 6, 'chips-stack': 6 };
+for (const [head, n] of Object.entries(SFX)) {
+  if (!n) CORE.push(`./sfx/${head}.ogg`);
+  for (let i = 1; i <= n; i++) CORE.push(`./sfx/${head}-${i}.ogg`);
+}
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(CORE)).then(() => self.skipWaiting()));
