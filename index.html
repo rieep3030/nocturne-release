@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#060507">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Nocturne">
+<title>Nocturne — Card Room</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icons/icon-180.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23060507'/%3E%3Cpath d='M16 5 L27 16 L16 27 L5 16Z' fill='none' stroke='%23c8a765' stroke-width='1.6'/%3E%3Cpath d='M16 11 L21 16 L16 21 L11 16Z' fill='%23c8a765'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Shippori+Mincho:wght@500;600&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./css/style.css">
+<link rel="stylesheet" href="./css/theme-future.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/build/three.module.js", "three/addons/": "./vendor/three/examples/jsm/", "cannon-es": "./vendor/cannon-es/cannon-es.js" } }
+</script>
+</head>
+<body>
+<canvas id="stage" aria-hidden="true"></canvas>
+
+<div id="app">
+  <!-- 入口 -->
+  <section id="gate" class="screen">
+    <div class="gate-inner">
+      <div class="crest" id="crest" aria-hidden="true"></div>
+      <p class="eyebrow">Members' Card Room</p>
+      <h1 class="wordmark">NOCTURNE</h1>
+      <p class="tagline"><span>Texas Hold'em</span><i class="dia" aria-hidden="true"></i><span>Open after midnight</span></p>
+      <form id="gate-form" class="gate-form" autocomplete="off">
+        <label class="field">
+          <span>お名前</span>
+          <input id="g-name" maxlength="16" required autocomplete="nickname" spellcheck="false">
+        </label>
+        <label class="field" id="g-key-wrap" hidden>
+          <span>合言葉</span>
+          <input id="g-key" type="password" autocomplete="off">
+        </label>
+        <p class="gate-error" id="g-error" role="alert"></p>
+        <button class="btn btn-primary btn-wide" type="submit">入場する</button>
+      </form>
+      <p class="fine">チップは遊戯用の仮想チップです。金銭的価値はありません。</p>
+    </div>
+  </section>
+
+  <!-- ロビー -->
+  <section id="lobby" class="screen" hidden>
+    <header class="topbar">
+      <div class="brand">NOCTURNE<small>Card Room</small></div>
+      <div class="conn" id="conn-l"></div>
+    </header>
+    <div class="lobby-grid">
+      <aside class="member framed">
+        <p class="eyebrow">Membership</p>
+        <h2 class="m-name" id="m-name"></h2>
+        <p class="m-no" id="m-no"></p>
+        <dl class="ledger">
+          <div><dt>手持ち</dt><dd id="m-wallet">0</dd></div>
+          <div><dt>卓上</dt><dd id="m-table">0</dd></div>
+          <div class="best"><dt>自己ベスト</dt><dd id="m-best">—</dd></div>
+        </dl>
+        <p class="m-run" id="m-run"></p>
+        <p class="m-limit" id="m-limit"></p>
+        <p class="sigil" id="m-unlock" hidden><i class="dia"></i>奥の卓に招かれています</p>
+        <div class="legend" id="chip-legend"></div>
+      </aside>
+      <main class="tables">
+        <div class="sec-head">
+          <div>
+            <p class="eyebrow">Tonight</p>
+            <h2>開いている卓</h2>
+          </div>
+          <button class="btn btn-primary" id="b-new" type="button">卓を開く</button>
+        </div>
+        <ol class="table-list" id="table-list"></ol>
+      </main>
+    </div>
+  </section>
+
+  <!-- 卓 -->
+  <section id="room" class="screen" hidden>
+    <header class="topbar room-bar">
+      <button class="btn btn-ghost" id="b-back" type="button">ロビーへ</button>
+      <div class="room-title">
+        <strong id="r-name"></strong>
+        <span id="r-stakes"></span>
+      </div>
+      <div class="room-tools">
+        <span class="r-wallet" id="r-wallet"></span>
+        <button class="btn btn-ghost" id="b-rebuy" type="button" hidden>チップ追加</button>
+        <button class="btn btn-ghost" id="b-stand" type="button" hidden>席を立つ</button>
+        <button class="btn btn-ghost" id="b-log" type="button">記録</button>
+      </div>
+    </header>
+    <div class="stage-area" id="stage-area">
+      <div id="felt">
+        <div class="board" id="board"></div>
+        <div class="pot" id="pot"></div>
+        <div class="result" id="result"></div>
+        <div id="bets"></div>
+        <div class="dealer" id="dealer" hidden>D</div>
+        <div id="seats"></div>
+      </div>
+    </div>
+    <div class="actionbar" id="actionbar"></div>
+    <div class="rotate" aria-live="polite">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><rect x="22" y="8" width="20" height="36" rx="3"/><path d="M16 52 A22 22 0 0 0 52 46"/><path d="M48 42 l4 4 4-5"/></svg>
+      <p class="eyebrow">Landscape</p>
+      <p class="rotate-msg">卓は横向きでお楽しみください。<br>端末を横に傾けると表示されます。</p>
+    </div>
+    <aside class="logpanel" id="logpanel" hidden>
+      <div class="lp-head"><p class="eyebrow">Ledger</p><button class="btn btn-ghost btn-small" id="b-log-close" type="button">閉じる</button></div>
+      <ol id="log"></ol>
+    </aside>
+  </section>
+</div>
+
+<div id="toasts" aria-live="polite"></div>
+<dialog id="dlg"></dialog>
+<div class="offline" id="offline" hidden></div>
+
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>

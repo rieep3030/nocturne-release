@@ -1,0 +1,156 @@
+/* ============ 近未来の上乗せ ============
+   スモークガラスの面と、縁を走る金色の光。style.css の後に読み込む。 */
+:root {
+  --hud: 'Jost', 'Zen Kaku Gothic New', sans-serif;
+  --glass: linear-gradient(160deg, rgba(28, 24, 33, .58) 0%, rgba(9, 8, 12, .72) 100%);
+  --edge-hi: rgba(255, 222, 160, .42);
+  --gold-glow: rgba(255, 200, 120, .45);
+  --spade: #a9e4ff;
+  --heart: #ff4d6a;
+}
+
+/* ---------- ロゴ（はみ出しても画面の中央に置く） ---------- */
+.wordmark {
+  width: 100vw;
+  max-width: none;
+  margin: 8px calc(50% - 50vw) 6px;
+  padding-left: .26em;
+  text-align: center;
+  white-space: nowrap;
+  filter: drop-shadow(0 0 18px rgba(255, 200, 120, .18));
+}
+
+/* ---------- 文字 ---------- */
+.eyebrow, .plevel, .pot small, .ab-clock, .presets button, .field > span, .act kbd, .seat .ribbon, .brand small {
+  font-family: var(--hud);
+  font-weight: 400;
+}
+.eyebrow { font-size: 11px; letter-spacing: .46em; }
+.plevel { letter-spacing: .34em; }
+
+/* ---------- 光る罫線 ---------- */
+.topbar, .actionbar { position: relative; background: rgba(6, 5, 8, .55); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); border-color: transparent; }
+.topbar::after, .actionbar::before {
+  content: ''; position: absolute; left: 0; right: 0; height: 1px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255, 214, 150, .8) 50%, transparent);
+  box-shadow: 0 0 10px var(--gold-glow);
+}
+.topbar::after { bottom: -1px; }
+.actionbar::before { top: -1px; }
+
+/* ---------- スモークガラスの面 ---------- */
+.member, dialog, .plaque, .logpanel, .result .r-line {
+  background: var(--glass);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+}
+.member, dialog, .plaque {
+  border-color: rgba(200, 167, 101, .3);
+  box-shadow: inset 0 1px 0 var(--edge-hi), 0 0 0 1px rgba(200, 167, 101, .06), 0 14px 34px rgba(0, 0, 0, .6);
+}
+.plaque::after { border-color: rgba(255, 222, 160, .07); }
+.seat.turn .plaque {
+  border-color: var(--gold-hi);
+  box-shadow: inset 0 1px 0 rgba(255, 230, 180, .7), 0 0 0 1px rgba(230, 196, 128, .55), 0 0 26px var(--gold-glow), 0 14px 34px rgba(0, 0, 0, .6);
+}
+.seat.turn .plaque::before {
+  content: ''; position: absolute; left: 8%; right: 8%; top: -1px; height: 1px;
+  background: linear-gradient(90deg, transparent, #fff3d6, transparent);
+  animation: sweep 1.6s ease-in-out infinite;
+}
+.ptimer i { box-shadow: 0 0 8px var(--gold-glow); }
+.result .r-line { border-top-color: rgba(255, 214, 150, .8); border-bottom-color: rgba(255, 214, 150, .8); box-shadow: 0 0 22px rgba(255, 200, 120, .22); }
+.ledger > div { border-bottom-style: solid; border-bottom-color: rgba(200, 167, 101, .14); }
+
+/* ---------- ボタン ---------- */
+.btn, .act { backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.btn-primary, .act.raise {
+  border-color: rgba(255, 210, 140, .8);
+  box-shadow: 0 0 14px rgba(255, 200, 120, .22), inset 0 0 14px rgba(255, 200, 120, .08), inset 0 1px 0 rgba(255, 230, 180, .35);
+}
+.btn-primary:hover, .act.raise:hover { box-shadow: 0 0 22px rgba(255, 200, 120, .4), inset 0 0 16px rgba(255, 200, 120, .14), inset 0 1px 0 rgba(255, 230, 180, .5); }
+.btn:not(.btn-ghost):hover, .act:hover { box-shadow: 0 0 14px rgba(255, 200, 120, .2); }
+
+/* ---------- 卓のレイヤー（位置は 3D 卓から投影して JS が指定） ---------- */
+#felt { left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+#felt > *, #seats > * { pointer-events: auto; }
+#seats, #bets { position: absolute; inset: 0; pointer-events: none; }
+.dealer { box-shadow: 0 0 0 1px rgba(255, 230, 180, .6), 0 0 12px rgba(255, 220, 160, .5), 0 2px 8px rgba(0, 0, 0, .7); }
+.betlabel, .pot b { text-shadow: 0 0 8px rgba(0, 0, 0, .9), 0 1px 3px #000; }
+.slot { border-color: rgba(230, 240, 255, .1); background: rgba(10, 10, 14, .25); box-shadow: inset 0 0 12px rgba(230, 240, 255, .03); }
+
+/* ---------- カード：黒地＋スート色に光る縁 ---------- */
+.card {
+  --glow: var(--spade);
+  background: linear-gradient(160deg, #1d1a22 0%, #0d0c10 58%, #08070a 100%);
+  color: #ece3d0;
+  border-radius: calc(var(--cw) * .08);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--glow) 80%, transparent),
+    0 0 calc(var(--cw) * .22) color-mix(in srgb, var(--glow) 42%, transparent),
+    inset 0 0 calc(var(--cw) * .18) color-mix(in srgb, var(--glow) 16%, transparent),
+    0 8px 18px rgba(0, 0, 0, .65);
+}
+.card.red { --glow: var(--heart); color: #ff5f76; }
+.card.red .cr, .card.red .cb { text-shadow: 0 0 10px rgba(255, 77, 106, .35); }
+.card .cr { text-shadow: 0 0 10px rgba(236, 227, 208, .15); }
+.card.back {
+  --glow: #e6c480;
+  background:
+    repeating-linear-gradient(45deg, rgba(230, 196, 128, .16) 0 1px, transparent 1px 6px),
+    repeating-linear-gradient(-45deg, rgba(230, 196, 128, .16) 0 1px, transparent 1px 6px),
+    #09080c;
+}
+.card.hi {
+  transform: translateY(-3px);
+  box-shadow:
+    0 0 0 1.5px var(--glow),
+    0 0 calc(var(--cw) * .5) color-mix(in srgb, var(--glow) 70%, transparent),
+    inset 0 0 calc(var(--cw) * .25) color-mix(in srgb, var(--glow) 28%, transparent),
+    0 8px 18px rgba(0, 0, 0, .65);
+}
+.card.dim { filter: none; opacity: .38; }
+
+/* テッセラクトから飛び出して配られる */
+.card.pending { opacity: 0; }
+.card.deal { animation: fromTess .64s cubic-bezier(.2, .75, .25, 1) both; animation-delay: var(--dd, 0ms); }
+@keyframes fromTess {
+  0% { opacity: 0; transform: translate(var(--fx, 0), var(--fy, -40px)) scale(.12) rotate(-40deg); filter: brightness(3); }
+  25% { opacity: 1; }
+  100% { opacity: 1; transform: none; filter: none; }
+}
+@keyframes sweep { 0%, 100% { opacity: .2; transform: scaleX(.3); } 50% { opacity: 1; transform: scaleX(1); } }
+
+/* ロビーの額面一覧 */
+.legend svg { width: 28px; height: 28px; }
+
+/* ---------- スマホ単体版：成績とゲームオーバー ---------- */
+.ledger .best dd { color: var(--gold-hi); font-size: 22px; }
+.m-run { margin: 14px 0 0; font-family: var(--hud); font-size: 12px; letter-spacing: .08em; color: var(--ivory-2); }
+.m-limit { margin: 6px 0 0; font-size: 11px; color: var(--ivory-3); line-height: 1.6; }
+.gameover h3 { font-size: 26px; letter-spacing: .2em; }
+.go-stats { margin: 16px auto 0; max-width: 300px; display: grid; gap: 6px; text-align: left; }
+.go-stats > div { display: flex; align-items: baseline; gap: 8px; padding-bottom: 4px; border-bottom: 1px solid rgba(200, 167, 101, .14); }
+.go-stats dt { font-size: 12px; letter-spacing: .12em; color: var(--ivory-2); }
+.go-stats dd { margin: 0 0 0 auto; font-family: var(--serif); font-size: 20px; font-variant-numeric: lining-nums tabular-nums; color: var(--ivory); }
+.go-stats .rec dd { color: var(--gold-hi); text-shadow: 0 0 10px rgba(255, 200, 120, .45); }
+.go-new {
+  font-family: var(--hud); font-size: 9px; letter-spacing: .2em; color: #1a1408; background: var(--gold-hi);
+  padding: 1px 5px; box-shadow: 0 0 10px rgba(255, 200, 120, .55);
+}
+.go-sub { margin-top: 18px !important; }
+.go-best dd { font-size: 17px; color: var(--gold-hi); }
+.go-cols > div > .go-stats { margin-top: 8px; }
+/* 横向きのスマホ：2列にして1画面に収める */
+@media (orientation: landscape) and (max-height: 520px) {
+  dialog:has(.gameover) { width: min(640px, calc(100vw - 24px)); }
+  .gameover { padding: 10px 22px 10px !important; }
+  .gameover .crest, .gameover .sign, .gameover > p:not(.eyebrow) { display: none; }
+  .gameover h3 { font-size: 20px; margin: 2px 0 2px; }
+  .go-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; text-align: left; }
+  .go-stats { gap: 2px; max-width: none; }
+  .go-stats dt { font-size: 11px; letter-spacing: .06em; }
+  .go-stats dd { font-size: 16px; }
+  .go-sub { margin-top: 6px !important; text-align: left; }
+  .gameover .dlg-actions { margin-top: 10px; }
+}
