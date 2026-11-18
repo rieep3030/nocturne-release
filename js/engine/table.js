@@ -65,6 +65,14 @@ class Table {
   }
 
   addBot(idx, level) {
+    const name = this.placeBot(idx, level);
+    this.addLog(`${name}（${LEVELS[level].label}）が着席`);
+    this.changed();
+    this.maybeStart();
+  }
+
+  // CPU を席に置くだけ（通知・ハンド開始はしない）。置いた CPU の名前を返す
+  placeBot(idx, level) {
     const L = LEVELS[level];
     if (!L) throw new Error('CPU の種類が不正です');
     if (this.seats[idx]) throw new Error('その席は埋まっています');
@@ -73,9 +81,7 @@ class Table {
     const name = L.names.find(n => !used.has(n)) || `${L.names[0]} ${idx + 1}`;
     const stack = this.bb * this.cfg.botBuyInBB;
     this.seats[idx] = this.newSeat({ id: 'bot:' + randomId(), name, isBot: true, level, stack });
-    this.addLog(`${name}（${L.label}）が着席`);
-    this.changed();
-    this.maybeStart();
+    return name;
   }
 
   // 席を立つ。ハンド中なら降りて、残りスタックを即時精算する（オールイン中は終了時に精算）
@@ -569,6 +575,7 @@ class Table {
 
   cleanupHand() {
     if (this.closed) return;
+    const replace = []; // チップが尽きて入れ替える CPU の席
     this.seats.forEach((s, i) => {
       if (!s) return;
       if (s.leaving) {
@@ -580,7 +587,12 @@ class Table {
       s.inHand = false; s.hole = []; s.folded = false; s.allIn = false; s.bet = 0; s.total = 0;
       s.lastAction = null;
       if (s.stack <= 0) {
-        if (s.isBot) {
+        // hooks.replaceBot があれば、別の CPU に入れ替える（なければ従来どおりリバイ）
+        const next = s.isBot && this.hooks.replaceBot ? this.hooks.replaceBot(s) : null;
+        if (next && LEVELS[next]) {
+          replace.push({ i, level: next, old: s.name });
+          this.seats[i] = null;
+        } else if (s.isBot) {
           const a = this.bb * this.cfg.botBuyInBB;
           s.stack = a;
           this.hooks.onBotRebuy?.(a);
@@ -590,6 +602,12 @@ class Table {
         }
       }
     });
+    for (const r of replace) {
+      let level = r.level;
+      if (level === 'proprietor' && this.seats.some(s => s && s.level === 'proprietor')) level = 'shark';
+      const name = this.placeBot(r.i, level);
+      this.addLog(`${r.old} が席を立ち、${name}（${LEVELS[level].label}）が着席`);
+    }
     this.hand = null;
     this.changed();
     this.maybeStart();

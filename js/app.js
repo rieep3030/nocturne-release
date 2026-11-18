@@ -28,7 +28,8 @@ const LEVEL_NOTE = {
   proprietor: 'この店の主。あなたの打ち筋を覚えている。',
 };
 // 席の配置（自分が常に下中央。時計回り）
-const ANG = [90, 145, 215, 270, 325, 35];
+// 真向かい（270°）はテッセラクトのために空ける。chips-physics.js の SEAT_ANG と同じ値にする
+const ANG = [90, 150, 208, 248, 300, 12];
 
 const S = {
   ws: null, hello: null, retry: 0, kicked: false,
@@ -226,24 +227,8 @@ function openCreate() {
       seg.append(lb);
     });
     stakeF.append(seg);
-    const grid = el('div', 'seat-grid');
-    const defaults = ['regular', 'novice', 'shark', '', ''];
-    const selects = [];
-    for (let i = 1; i <= 5; i++) {
-      const f = el('label', 'field');
-      const sel = el('select');
-      sel.append(new Option('空席', ''));
-      for (const [k, L] of Object.entries(S.levels)) {
-        if (L.hidden && !S.me.unlocked) continue;
-        sel.append(new Option(`${L.label}（${L.en}）`, k));
-      }
-      sel.value = defaults[i - 1];
-      selects.push(sel);
-      f.append(el('span', null, `席 ${i + 1}`), sel);
-      grid.append(f);
-    }
-    const seatF = el('div', 'field');
-    seatF.append(el('span', null, 'CPU の配置（席 1 はあなた）'), grid);
+    // CPU は卓のレートに応じて自動で座る（席は常に満席）
+    const note = el('p', 'note', 'CPU は卓のレートに合わせて自動で座ります。高いレートほど手強い相手が増えます。');
     const acts = el('div', 'dlg-actions');
     const cancel = el('button', 'btn btn-ghost', 'やめる');
     cancel.type = 'button';
@@ -251,12 +236,11 @@ function openCreate() {
     const ok = el('button', 'btn btn-primary', '開く');
     ok.type = 'submit';
     acts.append(cancel, ok);
-    form.append(nameF, stakeF, seatF, acts);
+    form.append(nameF, stakeF, note, acts);
     form.onsubmit = e => {
       e.preventDefault();
-      const bots = selects.map((s, i) => ({ seat: i + 1, level: s.value })).filter(b => b.level);
       const stake = form.querySelector('input[name=stake]:checked').value;
-      send({ t: 'createTable', name: nameI.value, stake, bots });
+      send({ t: 'createTable', name: nameI.value, stake });
       close();
     };
     box.append(form);
@@ -541,11 +525,6 @@ function renderSeats(t) {
         b.onclick = () => openBuyIn(i);
         div.append(b);
       }
-      if (isHost) {
-        const b = el('button', 'btn', 'CPU を招く');
-        b.onclick = () => openAddBot(i);
-        div.append(b);
-      }
       if (!div.children.length) div.append(el('span', 'vacant', 'vacant'));
       box.append(div);
       return;
@@ -579,13 +558,6 @@ function renderSeats(t) {
     if (s.handName) txt = s.handName;
     if (s.won > 0) txt = `${s.handName ? s.handName + '　' : ''}+${fmt(s.won)}`;
     if (txt) div.append(el('div', 'paction' + (s.won > 0 || s.handName ? ' hot' : ''), txt));
-    if (isHost && s.isBot) {
-      const k = el('button', 'kick', '×');
-      k.title = 'CPU を外す';
-      k.setAttribute('aria-label', `${s.name} を外す`);
-      k.onclick = () => send({ t: 'removeBot', seat: i });
-      div.append(k);
-    }
     box.append(div);
   });
 
@@ -824,6 +796,9 @@ function frame() {
 
 // ---------------- 初期化 ----------------
 function bind() {
+  // 拡大縮小を止める（iPhone の Safari は viewport の user-scalable=no を無視するため）
+  for (const ev of ['gesturestart', 'gesturechange']) document.addEventListener(ev, e => e.preventDefault(), { passive: false });
+  document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
   $('#crest').innerHTML = crestSVG();
   const lg = $('#chip-legend');
   for (const d of LEGEND) {

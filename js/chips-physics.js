@@ -24,7 +24,8 @@ const G = 26;
 
 // 卓の寸法（ワールド単位）。x が横、z が奥行き（+z が手前＝自分の席）
 const TA = 10, TB = 4.875, RAIL = 0.95, RAIL_H = 0.3;
-const SEAT_ANG = [90, 145, 215, 270, 325, 35];
+// 真向かい（270°）はテッセラクトのために空ける。app.js の ANG と同じ値にする
+const SEAT_ANG = [90, 150, 208, 248, 300, 12];
 const BOARD_Z = 0.25;
 const POT_Z = 2.05;
 const TESS_POS = new THREE.Vector3(0, 1.3, -1.05);

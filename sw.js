@@ -1,11 +1,11 @@
 // オフライン用 Service Worker
 // 更新を公開するときは VERSION を変える（変えないと端末に古い版が残る）。
-const VERSION = 'nocturne-mobile-v2';
+const VERSION = 'nocturne-mobile-v3';
 const FONTS = 'nocturne-fonts-v1';
 
 const CORE = [
   './', './index.html', './manifest.webmanifest',
-  './css/style.css', './css/theme-future.css',
+  './css/style.css', './css/theme-future.css', './css/mobile-fit.css',
   './js/app.js', './js/local-server.js', './js/chips-physics.js',
   './js/engine/cards.js', './js/engine/evaluator.js', './js/engine/equity.js', './js/engine/bots.js',
   './js/engine/table.js', './js/engine/bot-worker.js',

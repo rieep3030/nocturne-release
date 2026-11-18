@@ -18,6 +18,20 @@ export const CONFIG = {
   botBuyInBB: 100,
 };
 
+// 卓のレートごとに座る CPU（席 1〜5。席 0 はあなた）。チップが尽きた CPU も同じ割合から選び直す
+const LINEUP = {
+  low: ['novice', 'novice', 'novice', 'regular', 'regular'],
+  mid: ['novice', 'regular', 'regular', 'regular', 'shark'],
+  high: ['regular', 'regular', 'shark', 'shark', 'shark'],
+};
+// 支配人を解放済みなら、最高レートの卓を開くたびにこの確率で勝負師1人が支配人に代わる
+const PROPRIETOR_CHANCE = 1 / 3;
+const pick = a => a[Math.floor(Math.random() * a.length)];
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
 const KEY = 'nocturne.mobile.v1';
 const UNIT = 5;
 const fmt = n => Number(n).toLocaleString('en-US');
@@ -165,6 +179,8 @@ export function createLocalServer(onMessage) {
     table = new Table({
       id: 'local', name, sb: stake.sb, bb: stake.bb, hostId: player.id, config: CONFIG, decider,
       hooks: {
+        // チップが尽きた CPU は、同じレートの顔ぶれから選び直した CPU に入れ替える
+        replaceBot: s => (s.level === 'proprietor' ? 'proprietor' : pick(LINEUP[stake.id] || LINEUP.low)),
         onChange: () => {
           countHand();
           player.run.peak = Math.max(player.run.peak, total());
@@ -223,16 +239,13 @@ export function createLocalServer(onMessage) {
       case 'createTable': {
         const stake = CONFIG.stakes.find(s => s.id === msg.stake);
         if (!stake) throw new Error('ステークスが不正です');
-        const bots = Array.isArray(msg.bots) ? msg.bots.slice(0, 6) : [];
-        for (const b of bots) {
-          if (!LEVELS[b.level]) throw new Error('CPU の種類が不正です');
-          if (b.level === 'proprietor' && !player.unlocked) throw new Error('支配人にはまだ招かれていません');
+        // CPU は自動で満席にする（席 0 はあなた）
+        const levels = shuffle([...(LINEUP[stake.id] || LINEUP.low)]);
+        if (stake.id === 'high' && player.unlocked && Math.random() < PROPRIETOR_CHANCE) {
+          levels[levels.indexOf('shark')] = 'proprietor';
         }
         const tb = createTable(cleanName(msg.name) || 'Salon', stake);
-        for (const b of bots) {
-          const seat = int(b.seat);
-          if (seat >= 0 && seat < 6 && !tb.seats[seat]) { try { tb.addBot(seat, b.level); } catch { /* 支配人の重複など */ } }
-        }
+        levels.forEach((level, k) => tb.addBot(k + 1, level));
         viewing = true;
         send({ t: 'created', tableId: tb.id });
         sendTable();
