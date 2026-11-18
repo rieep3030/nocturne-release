@@ -3,6 +3,14 @@
 /* ダブルタップでの拡大を止め、文字サイズの自動拡大もさせない */
 html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 
+/* 画面全体を固定し、指で引っぱったときにページごと上下にずれる（跳ね返る）のを止める（2026-11-18） */
+html, body { position: fixed; inset: 0; width: 100%; height: 100%; overflow: hidden; overscroll-behavior: none; }
+
+/* 卓の上部バー：中央をテッセラクトの置き場所として空け、卓名とレートは左の「ロビーへ」の隣に置く。
+   テッセラクトは背面の 3D 画面に描くので、バーの背景は透明にする（2026-11-18） */
+#room .room-bar { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
+#room .room-title { flex: 0 1 auto; max-width: calc(50% - 130px); margin-right: auto; text-align: left; }
+
 @media (orientation: landscape) and (max-height: 520px) {
   /* ロビー：左に会員カード、右に卓の一覧。スクロールさせない */
   #lobby .lobby-grid {
@@ -37,4 +45,16 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
   .form-grid { gap: 10px; }
   .field input, .field select { font-size: 16px; padding: 4px 2px 6px; }
   .seg span { padding: 5px 4px; font-size: 15px; }
+
+  /* 入口：ロゴを小さくして詰め、画面の下の約2割をチップの陳列のために空ける（2026-11-18） */
+  #gate { padding: 8px 16px 23vh; }
+  .gate-inner { width: min(400px, 100%); }
+  .crest { width: 54px; margin-bottom: 4px; }
+  #gate .eyebrow { font-size: 10px; }
+  .wordmark { font-size: clamp(30px, 5vw, 44px); margin-top: 2px; margin-bottom: 0; }
+  .tagline { margin: 4px 0 10px; font-size: 13px; }
+  .gate-form { gap: 8px; }
+  .gate-error { margin: 0; min-height: 0; font-size: 12px; }
+  .btn-wide { height: 38px; font-size: 13px; }
+  .fine { margin-top: 6px; font-size: 10px; }
 }

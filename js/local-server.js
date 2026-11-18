@@ -1,7 +1,7 @@
 // 端末内サーバー：PC 版 server.js の代わりに、同じ形式のメッセージをやり取りする。
 // メンバー情報（手持ち・今回の成績・自己ベスト・解放状況）は端末の localStorage に保存する。
 // スマホ単体版のルール：借金と補充はなし。手持ち＋卓上チップが最小卓の最低バイイン未満になったらゲームオーバー。
-import { Table } from './engine/table.js';
+import { Table, N as SEATS } from './engine/table.js';
 import { LEVELS } from './engine/bots.js';
 
 export const CONFIG = {
@@ -18,11 +18,11 @@ export const CONFIG = {
   botBuyInBB: 100,
 };
 
-// 卓のレートごとに座る CPU（席 1〜5。席 0 はあなた）。チップが尽きた CPU も同じ割合から選び直す
+// 卓のレートごとに座る CPU（席 1〜6。席 0 はあなた）。チップが尽きた CPU も同じ割合から選び直す
 const LINEUP = {
-  low: ['novice', 'novice', 'novice', 'regular', 'regular'],
-  mid: ['novice', 'regular', 'regular', 'regular', 'shark'],
-  high: ['regular', 'regular', 'shark', 'shark', 'shark'],
+  low: ['novice', 'novice', 'novice', 'novice', 'regular', 'regular'],
+  mid: ['novice', 'regular', 'regular', 'regular', 'regular', 'shark'],
+  high: ['regular', 'regular', 'shark', 'shark', 'shark', 'shark'],
 };
 // 支配人を解放済みなら、最高レートの卓を開くたびにこの確率で勝負師1人が支配人に代わる
 const PROPRIETOR_CHANCE = 1 / 3;
@@ -267,7 +267,7 @@ export function createLocalServer(onMessage) {
         if (!table) throw new Error('卓に入っていません');
         if (mySeat() >= 0) throw new Error('すでに着席しています');
         const seat = int(msg.seat);
-        if (!(seat >= 0 && seat < 6) || table.seats[seat]) throw new Error('その席には座れません');
+        if (!(seat >= 0 && seat < SEATS) || table.seats[seat]) throw new Error('その席には座れません');
         const amt = Math.round(int(msg.amount) / UNIT) * UNIT;
         if (!(amt >= table.minBuyIn && amt <= table.maxBuyIn)) throw new Error(`バイインは ${fmt(table.minBuyIn)}〜${fmt(table.maxBuyIn)} です`);
         if (amt > player.wallet) throw new Error('手持ちが足りません');
@@ -303,7 +303,7 @@ export function createLocalServer(onMessage) {
         if (!LEVELS[msg.level]) throw new Error('CPU の種類が不正です');
         if (msg.level === 'proprietor' && !player.unlocked) throw new Error('支配人にはまだ招かれていません');
         const seat = int(msg.seat);
-        if (!(seat >= 0 && seat < 6)) throw new Error('席が不正です');
+        if (!(seat >= 0 && seat < SEATS)) throw new Error('席が不正です');
         table.addBot(seat, msg.level);
         return;
       }

@@ -4,7 +4,7 @@ import { toStr, shuffledDeck, randomId } from './cards.js';
 import { evaluate, handName, bestFive } from './evaluator.js';
 import { LEVELS, decide } from './bots.js';
 
-const N = 6;
+const N = 7; // スマホ版は7人卓（あなた＋CPU 6人。2026-11-18 決定）
 const UNIT = 5;
 const fmt = n => Number(n).toLocaleString('en-US');
 

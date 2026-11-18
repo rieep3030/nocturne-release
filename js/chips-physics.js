@@ -24,10 +24,11 @@ const G = 26;
 
 // 卓の寸法（ワールド単位）。x が横、z が奥行き（+z が手前＝自分の席）
 const TA = 10, TB = 4.875, RAIL = 0.95, RAIL_H = 0.3;
-// 真向かい（270°）はテッセラクトのために空ける。app.js の ANG と同じ値にする
-const SEAT_ANG = [90, 150, 208, 248, 300, 12];
-const BOARD_Z = 0.25;
-const POT_Z = 2.05;
+// 7人卓・左右対称。app.js の ANG と同じ値にする
+const SEAT_ANG = [90, 140, 195, 245, 295, 345, 40];
+// テッセラクトを卓の上から画面上部へ移したので、ボードとポットを卓の中央寄りに置く（2026-11-18）
+const BOARD_Z = -0.8;
+const POT_Z = 1.75;
 const TESS_POS = new THREE.Vector3(0, 1.3, -1.05);
 const TESS_SCALE = 1.1;
 
@@ -213,6 +214,9 @@ export class TableStage {
     this.tessLight = new THREE.PointLight(0xe6f2ff, 0.35, 6, 0);
     this.tessLight.position.copy(TESS_POS);
     this.s3.add(this.tessLight);
+    // テッセラクトの置き場所（2026-11-18 から画面上部バーの中央。placeTesseract で毎回決め直す）
+    this.tessBase = TESS_POS.clone();
+    this.tessScale = 1;
 
     this.protos = buildProtos();
     this.buildTable();
@@ -398,6 +402,7 @@ export class TableStage {
     const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 1.0, TESS_POS.y, 40, 1, true),
       new THREE.MeshBasicMaterial({ color: 0xd8e8ff, transparent: true, opacity: 0.018, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
     beam.position.set(TESS_POS.x, TESS_POS.y / 2, TESS_POS.z);
+    beam.visible = false; // テッセラクトを画面上部へ移したので光柱は出さない
     this.s3.add(beam);
     this.tA = 0; this.tB = 0; this.tC = 0; this.tPulse = 0; this.tTime = 0;
   }
@@ -425,8 +430,10 @@ export class TableStage {
     const pa = this.tPts.geometry.attributes.position;
     P.forEach((p, i) => pa.setXYZ(i, p[0], p[1], p[2]));
     pa.needsUpdate = true;
-    const bob = Math.sin(this.tTime * 1.2) * 0.07;
-    this.tLines.position.y = this.tPts.position.y = TESS_POS.y + bob;
+    const bob = Math.sin(this.tTime * 1.2) * 0.07 * this.tessScale;
+    this.tLines.position.copy(this.tessBase);
+    this.tLines.position.y += bob;
+    this.tPts.position.copy(this.tLines.position);
     const glow = 0.96 + this.tPulse * 0.55;
     this.tMat.color.setRGB(glow, glow, glow);
     this.tessLight.intensity = 0.3 + this.tPulse * 0.9;
@@ -681,6 +688,27 @@ export class TableStage {
     const offY = (b.y0 + b.y1) / 2 - (area.top + padT + availH / 2);
     cam.setViewOffset(this.W, this.H, offX, offY, this.W, this.H);
     cam.updateMatrixWorld();
+    this.placeTesseract(area);
+  }
+
+  // テッセラクトを画面上部の中央に置く：その画面位置へ向かう視線上、カメラから一定距離の点に置く。
+  // 大きさは卓の上にあったときと同じくらい（見かけの高さ約76px）を保ち、上部バーから卓の奥の縁にかかる位置になる
+  placeTesseract(area) {
+    const cam = this.cam;
+    const sizePx = Math.min(80, Math.max(56, area.height * 0.24));
+    const px = this.W / 2, py = Math.max(area.top / 2, sizePx / 2 + 4);
+    const p = new THREE.Vector3((px / this.W) * 2 - 1, -(py / this.H) * 2 + 1, 0.5).unproject(cam);
+    const dir = p.sub(cam.position).normalize();
+    const D = 8;
+    this.tessBase.copy(cam.position).addScaledVector(dir, D);
+    const worldPerPx = (2 * D * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2))) / this.H;
+    const s = (sizePx * worldPerPx) / 2.4; // 2.4 = 縮める前の見かけの高さ（ワールド単位）
+    this.tessScale = s;
+    this.tLines.scale.setScalar(s);
+    this.tPts.scale.setScalar(s);
+    this.tPts.material.size = 0.045 * s;
+    this.tLines.position.copy(this.tessBase);
+    this.tPts.position.copy(this.tessBase);
   }
 
   layout(area) {
@@ -692,7 +720,7 @@ export class TableStage {
     const c1 = pr(new THREE.Vector3(-0.55, 0, BOARD_Z)), c2 = pr(new THREE.Vector3(0.55, 0, BOARD_Z));
     return {
       seat: A.seat.map(pr), bet: A.bet.map(pr), dealer: A.dealer.map(pr), win: A.win.map(pr),
-      pot: pr(A.pot), board: pr(A.board), tess: pr(TESS_POS),
+      pot: pr(A.pot), board: pr(A.board), tess: pr(this.tessBase),
       cw: Math.max(22, Math.min(78, (c2.x - c1.x) * 0.92)),
     };
   }

@@ -28,8 +28,9 @@ const LEVEL_NOTE = {
   proprietor: 'この店の主。あなたの打ち筋を覚えている。',
 };
 // 席の配置（自分が常に下中央。時計回り）
-// 真向かい（270°）はテッセラクトのために空ける。chips-physics.js の SEAT_ANG と同じ値にする
-const ANG = [90, 150, 208, 248, 300, 12];
+// 7人卓・左右対称（左に 140/195/245、右に 40/345/295。真向かいの 270° は空く）。chips-physics.js の SEAT_ANG と同じ値にする
+const ANG = [90, 140, 195, 245, 295, 345, 40];
+const SEATS = ANG.length;
 
 const S = {
   ws: null, hello: null, retry: 0, kicked: false,
@@ -418,7 +419,7 @@ function onTable(t) {
 }
 
 function heroSeat(t) { return t.mySeat >= 0 ? t.mySeat : 0; }
-function disp(i, hero) { return (i - hero + 6) % 6; }
+function disp(i, hero) { return (i - hero + SEATS) % SEATS; }
 const lerp = (a, b, k) => ({ x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k });
 
 // 3D が使えない環境向けの平面配置（卓の楕円上に置く）
@@ -434,10 +435,10 @@ function flatLayout(area) {
     const a = (ANG[d] * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
     return at(50 + 50 * k * Math.sign(c) * Math.abs(c) ** 0.6, 50 + 50 * k * Math.sign(s) * Math.abs(s) ** 0.6);
   };
-  const ds = [0, 1, 2, 3, 4, 5];
+  const ds = ANG.map((_, d) => d);
   return {
     seat: ds.map(d => sp(d, 1)), bet: ds.map(d => sp(d, 0.62)), win: ds.map(d => sp(d, 0.76)),
-    dealer: ds.map(d => sp(d, 0.82)), pot: at(50, 66), board: at(50, 46), tess: at(50, 22),
+    dealer: ds.map(d => sp(d, 0.82)), pot: at(50, 66), board: at(50, 46), tess: { x: area.left + area.width / 2, y: area.top / 2 },
     cw: Math.max(compact ? 24 : 34, Math.min(70, w * 0.056, h * 0.19)),
   };
 }
@@ -452,8 +453,11 @@ function computeLayout() {
     pot: rel(L.pot), board: rel(L.board), tess: rel(L.tess), cw: L.cw, area,
   };
   const felt = $('#felt');
-  felt.style.setProperty('--cw', L.cw + 'px');
-  felt.style.setProperty('--cwb', Math.max(area.height < 420 ? 30 : 44, L.cw * 1.02) + 'px');
+  // 横向きのスマホ（高さが低い）では、ボードと自分の手札を約1.5倍にして見やすくする（2026-11-18）
+  const compact = area.height < 420;
+  const big = compact ? 1.5 : 1;
+  felt.style.setProperty('--cw', L.cw * big + 'px');
+  felt.style.setProperty('--cwb', Math.max(compact ? 30 : 44, L.cw * 1.02) * big + 'px');
 }
 const px = (elm, p, dy = 0) => { elm.style.left = p.x + 'px'; elm.style.top = p.y + dy + 'px'; };
 
@@ -798,7 +802,13 @@ function frame() {
 function bind() {
   // 拡大縮小を止める（iPhone の Safari は viewport の user-scalable=no を無視するため）
   for (const ev of ['gesturestart', 'gesturechange']) document.addEventListener(ev, e => e.preventDefault(), { passive: false });
-  document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+  // 1本指で引っぱったときにページごと動く（跳ね返る）のも止める。中身がスクロールする「記録」とダイアログ、
+  // レイズ額などのスライダーは除く（2026-11-18）
+  document.addEventListener('touchmove', e => {
+    if (e.touches.length > 1) { e.preventDefault(); return; }
+    if (e.target.closest && e.target.closest('#log, dialog, input[type=range]')) return;
+    e.preventDefault();
+  }, { passive: false });
   $('#crest').innerHTML = crestSVG();
   const lg = $('#chip-legend');
   for (const d of LEGEND) {
