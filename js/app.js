@@ -9,6 +9,9 @@ const el = (tag, cls, text) => {
   return e;
 };
 const fmt = n => Number(n || 0).toLocaleString('en-US');
+// ボタンの中身：Material Symbols Sharp のアイコン＋英語の表記（2026-11-19）
+const icon = name => { const i = el('span', 'ms', name); i.setAttribute('aria-hidden', 'true'); return i; };
+const btnIn = (b, name, text) => { b.textContent = ''; b.append(icon(name)); if (text) b.append(el('span', null, text)); return b; };
 const local = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* 保存できない環境では何もしない */ } },
@@ -31,6 +34,8 @@ const LEVEL_NOTE = {
 // 7人卓・左右対称（左に 140/195/245、右に 40/345/295。真向かいの 270° は空く）。chips-physics.js の SEAT_ANG と同じ値にする
 const ANG = [90, 140, 195, 245, 295, 345, 40];
 const SEATS = ANG.length;
+// 席の下に出す行動の表示（エンジンの値は日本語のまま。表示だけ英語にする。2026-11-19）
+const ACTION_EN = { 'フォールド': 'FOLD', 'チェック': 'CHECK', 'コール': 'CALL', 'ベット': 'BET', 'レイズ': 'RAISE', 'オールイン': 'ALL-IN', '退席': 'AWAY' };
 
 const S = {
   ws: null, hello: null, retry: 0, kicked: false,
@@ -201,7 +206,7 @@ function renderLobby() {
     seats.title = '◆ 人 ／ ◇ CPU';
     t.seats.forEach(s => seats.append(el('i', s ? (s.isBot ? 'bot' : 'human') : '')));
     li.append(seats);
-    const b = el('button', 'btn btn-small', '入る');
+    const b = btnIn(el('button', 'btn btn-small'), 'login', 'JOIN');
     b.onclick = () => send({ t: 'joinTable', tableId: t.id });
     li.append(b);
     ol.append(li);
@@ -231,10 +236,10 @@ function openCreate() {
     // CPU は卓のレートに応じて自動で座る（席は常に満席）
     const note = el('p', 'note', 'CPU は卓のレートに合わせて自動で座ります。高いレートほど手強い相手が増えます。');
     const acts = el('div', 'dlg-actions');
-    const cancel = el('button', 'btn btn-ghost', 'やめる');
+    const cancel = btnIn(el('button', 'btn btn-ghost'), 'close', 'CANCEL');
     cancel.type = 'button';
     cancel.onclick = close;
-    const ok = el('button', 'btn btn-primary', '開く');
+    const ok = btnIn(el('button', 'btn btn-primary'), 'add', 'OPEN');
     ok.type = 'submit';
     acts.append(cancel, ok);
     form.append(nameF, stakeF, note, acts);
@@ -275,7 +280,7 @@ function brokeNote(box, need, close) {
   box.append(el('p', 'note', `手持ちが足りません（必要 ${fmt(need)}／手持ち ${fmt(me.wallet)}）。`));
   box.append(el('p', 'note', 'もっと小さい卓なら座れるかもしれません。'));
   const acts = el('div', 'dlg-actions');
-  const c = el('button', 'btn btn-ghost', '閉じる');
+  const c = btnIn(el('button', 'btn btn-ghost'), 'close', 'CLOSE');
   c.onclick = close;
   acts.append(c);
   box.append(acts);
@@ -290,9 +295,9 @@ function openBuyIn(seat) {
     const init = Math.min(max, t.bb * 100);
     const get = amountPicker(box, t.minBuyIn, max, t.sb, init);
     const acts = el('div', 'dlg-actions');
-    const c = el('button', 'btn btn-ghost', 'やめる');
+    const c = btnIn(el('button', 'btn btn-ghost'), 'close', 'CANCEL');
     c.onclick = close;
-    const ok = el('button', 'btn btn-primary', '着席する');
+    const ok = btnIn(el('button', 'btn btn-primary'), 'chair', 'SIT');
     ok.onclick = () => { send({ t: 'sit', seat, amount: get() }); close(); };
     acts.append(c, ok);
     box.append(acts);
@@ -310,9 +315,9 @@ function openRebuy() {
     if (max <= 0 || max < t.sb) { brokeNote(box, Math.max(t.sb, t.minBuyIn - s.stack), close); return; }
     const get = amountPicker(box, min, max, t.sb, Math.min(max, Math.max(min, t.bb * 100 - s.stack)));
     const acts = el('div', 'dlg-actions');
-    const c = el('button', 'btn btn-ghost', 'やめる');
+    const c = btnIn(el('button', 'btn btn-ghost'), 'close', 'CANCEL');
     c.onclick = close;
-    const ok = el('button', 'btn btn-primary', '追加する');
+    const ok = btnIn(el('button', 'btn btn-primary'), 'add', 'ADD');
     ok.onclick = () => { send({ t: 'rebuy', amount: get() }); close(); };
     acts.append(c, ok);
     box.append(acts);
@@ -333,7 +338,7 @@ function openAddBot(seat) {
     }
     box.append(list);
     const acts = el('div', 'dlg-actions');
-    const c = el('button', 'btn btn-ghost', 'やめる');
+    const c = btnIn(el('button', 'btn btn-ghost'), 'close', 'CANCEL');
     c.onclick = close;
     acts.append(c);
     box.append(acts);
@@ -378,7 +383,7 @@ function showGameOver(m) {
     box.append(el('p', 'sign', `— 手持ち ${fmt(m.startingWallet)} から、もう一度`));
     const acts = el('div', 'dlg-actions');
     acts.style.justifyContent = 'center';
-    const ok = el('button', 'btn btn-primary', 'もう一度はじめる');
+    const ok = btnIn(el('button', 'btn btn-primary'), 'replay', 'RESTART');
     ok.onclick = close;
     acts.append(ok);
     box.append(acts);
@@ -396,7 +401,7 @@ function showInvite(botName) {
     box.append(el('p', 'sign', '— M. Nocturne'));
     const acts = el('div', 'dlg-actions');
     acts.style.justifyContent = 'center';
-    const ok = el('button', 'btn btn-primary', '受け取る');
+    const ok = btnIn(el('button', 'btn btn-primary'), 'check', 'ACCEPT');
     ok.onclick = close;
     acts.append(ok);
     box.append(acts);
@@ -507,6 +512,7 @@ function tableSounds(prev, t) {
     if (!s || !ps || s.lastAction === ps.lastAction) return;
     if (s.lastAction === 'フォールド') sfx.play('shove');
     else if (s.lastAction === 'チェック') sfx.play('knock');
+    else if (s.lastAction === 'オールイン') sfx.play('allin');
   });
   if (!prev.actions && t.actions) sfx.play('turn');
 }
@@ -525,7 +531,7 @@ function renderSeats(t) {
     if (!s) {
       div.classList.add('empty');
       if (t.mySeat < 0) {
-        const b = el('button', 'btn', '着席');
+        const b = btnIn(el('button', 'btn'), 'chair', 'SIT');
         b.onclick = () => openBuyIn(i);
         div.append(b);
       }
@@ -558,7 +564,7 @@ function renderSeats(t) {
     div.append(pl);
     const rib = s.disconnected ? '切断' : s.leaving ? '退席' : s.sittingOut ? '離席' : (s.allIn && !s.folded && s.inHand) ? 'ALL-IN' : null;
     if (rib) div.append(el('span', 'ribbon', rib));
-    let txt = s.lastAction;
+    let txt = ACTION_EN[s.lastAction] || s.lastAction;
     if (s.handName) txt = s.handName;
     if (s.won > 0) txt = `${s.handName ? s.handName + '　' : ''}+${fmt(s.won)}`;
     if (txt) div.append(el('div', 'paction' + (s.won > 0 || s.handName ? ' hot' : ''), txt));
@@ -692,12 +698,12 @@ function renderActions(t) {
     const btns = el('div', 'ab-btns');
     if (me.stack > 0) {
       info.append(el('span', 'ab-note', '離席中です。'));
-      const b = el('button', 'btn btn-primary', '卓に戻る');
+      const b = btnIn(el('button', 'btn btn-primary'), 'login', 'RETURN');
       b.onclick = () => send({ t: 'sitBack' });
       btns.append(b);
     } else {
       info.append(el('span', 'ab-note', 'チップがありません。'));
-      const b = el('button', 'btn btn-primary', 'チップを追加');
+      const b = btnIn(el('button', 'btn btn-primary'), 'add', 'ADD CHIPS');
       b.onclick = openRebuy;
       btns.append(b);
     }
@@ -723,19 +729,20 @@ function renderActions(t) {
   const btns = el('div', 'ab-btns');
   if (!a.canCheck) {
     const f = el('button', 'act fold');
-    f.append(el('span', null, 'フォールド'), el('kbd', null, 'F'));
+    f.append(icon('close'), el('span', null, 'FOLD'), el('kbd', null, 'F'));
     f.onclick = () => doAct('fold');
     btns.append(f);
   }
   const c = el('button', 'act call');
-  if (a.canCheck) c.append(el('span', null, 'チェック'));
-  else { c.append(el('span', null, a.toCall >= me.stack ? 'オールイン' : 'コール'), el('small', null, fmt(a.toCall))); }
+  if (a.canCheck) c.append(icon('check'), el('span', null, 'CHECK'));
+  else if (a.toCall >= me.stack) c.append(icon('bolt'), el('span', null, 'ALL-IN'), el('small', null, fmt(a.toCall)));
+  else c.append(icon('check'), el('span', null, 'CALL'), el('small', null, fmt(a.toCall)));
   c.append(el('kbd', null, 'C'));
   c.onclick = () => doAct('call');
   btns.append(c);
 
   if (a.canRaise && me.stack > a.toCall) {
-    const verb = a.currentBet === 0 ? 'ベット' : 'レイズ';
+    const verb = a.currentBet === 0 ? 'BET' : 'RAISE';
     const rb = el('div', 'raise-box');
     const pre = el('div', 'presets');
     const potAfter = a.totalPot + a.toCall;
@@ -749,16 +756,19 @@ function renderActions(t) {
     const r = el('button', 'act raise');
     const rLabel = el('span', null, verb);
     const rAmt = el('small', null, fmt(S.raiseTo));
-    r.append(rLabel, rAmt, el('kbd', null, 'R'));
+    const rIcon = icon('north');
+    r.append(rIcon, rLabel, rAmt, el('kbd', null, 'R'));
     const sync = v => {
       S.raiseTo = clampR(v);
       range.value = S.raiseTo;
       out.textContent = fmt(S.raiseTo);
       rAmt.textContent = fmt(S.raiseTo);
-      rLabel.textContent = S.raiseTo >= a.maxRaiseTo ? 'オールイン' : verb;
+      rLabel.textContent = S.raiseTo >= a.maxRaiseTo ? 'ALL-IN' : verb;
+      rIcon.textContent = S.raiseTo >= a.maxRaiseTo ? 'bolt' : 'north';
     };
     for (const [label, frac] of [['½ POT', 0.5], ['¾ POT', 0.75], ['POT', 1], ['ALL-IN', 'max']]) {
       const b = el('button', null, label);
+      if (frac === 'max') b.prepend(icon('bolt'));
       b.type = 'button';
       b.onclick = () => sync(frac === 'max' ? a.maxRaiseTo : a.currentBet + potAfter * frac);
       pre.append(b);
@@ -840,7 +850,8 @@ function bind() {
   $('#b-log-close').onclick = () => { S.logOpen = false; $('#logpanel').hidden = true; };
   const sound = $('#b-sound');
   const syncSound = () => {
-    sound.textContent = sfx.isMuted() ? '音：オフ' : '音：オン';
+    btnIn(sound, sfx.isMuted() ? 'volume_off' : 'volume_up');
+    sound.setAttribute('aria-label', sfx.isMuted() ? '音：オフ' : '音：オン');
     sound.setAttribute('aria-pressed', String(!sfx.isMuted()));
   };
   sound.onclick = () => { sfx.setMuted(!sfx.isMuted()); syncSound(); sfx.play('click'); };

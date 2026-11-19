@@ -1,0 +1,22 @@
+NOCTURNE スマホ版の効果音（2026-11-19）
+
+すべて Freesound（https://freesound.org/）の Creative Commons 0（CC0、パブリックドメイン相当）の音源です。
+各ページの試聴用ファイル（高音質版 MP3）から、ゲーム用に短く切り分け、音量をそろえて
+WAV（44.1kHz・16bit・モノラル）にしました。CC0 のためクレジット表記は必須ではありませんが、感謝を込めて記します。
+
+chip-roll-1〜6, chip-tick-1〜3   Dice (6) pour on felt.wav — 2BACH
+                                 https://freesound.org/people/2BACH/sounds/185982/
+chip-handle-1〜3, chip-stack-1〜4, chip-payout
+                                 Poker Chips Handling — Flip_Book
+                                 https://freesound.org/people/Flip_Book/sounds/850377/
+chip-allin                       AllInPushChips2.wav — Joma86
+                                 https://freesound.org/people/Joma86/sounds/532860/
+card-shuffle-1〜2, card-deal-1〜6
+                                 Playing cards - Shuffling deck & deal — Vrymaa
+                                 https://freesound.org/people/Vrymaa/sounds/734631/
+card-place-1〜4, card-fold-1〜2   Playing cards on a wooden table — snuq
+                                 https://freesound.org/people/snuq/sounds/564128/
+knock-1〜2                       Knocks_on_Wood.wav — Dr.ake
+                                 https://freesound.org/people/Dr.ake/sounds/549338/
+
+License: https://creativecommons.org/publicdomain/zero/1.0/

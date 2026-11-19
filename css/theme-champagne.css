@@ -1,0 +1,210 @@
+/* ============ 案1「シャンパン」（2026-11-19 決定） ============
+   落ち着いた墨色の地に、温かみのある金色の細線。枠の対角に短い金具の線を入れ、
+   発光は操作できるもの（主ボタン・手番の席・ポット・スライダー）にだけ、ほのかに入れる。
+   英数字は Oxanium、日本語は Zen Kaku Gothic New。アイコンは Material Symbols Sharp の細線。
+   style.css → theme-future.css → mobile-fit.css の後に読み込み、見た目だけを上書きする。 */
+:root {
+  --ink: #08080a;
+  --ink-2: #0e0d11;
+  --ink-3: #141218;
+  --ivory: #ece6da;
+  --ivory-2: #a8a091;
+  --ivory-3: #6f685d;
+  --gold: #d9c08a;
+  --gold-hi: #f2e2b8;
+  --gold-2: #8f7a4f;
+  --gold-line: rgba(217, 192, 138, .30);
+  --gold-faint: rgba(217, 192, 138, .11);
+  --glow-gold: rgba(232, 204, 140, .32);
+  --glow-soft: rgba(232, 204, 140, .12);
+  --oxa: 'Oxanium', 'Zen Kaku Gothic New', sans-serif;
+  --serif: var(--oxa);
+  --mincho: 'Zen Kaku Gothic New', 'Oxanium', sans-serif;
+  --sans: var(--oxa);
+  --hud: var(--oxa);
+  /* 対角の金具（左上と右下に短い線） */
+  --tick: rgba(242, 226, 184, .78);
+  --ticks:
+    linear-gradient(var(--tick), var(--tick)) top left / 10px 1px no-repeat,
+    linear-gradient(var(--tick), var(--tick)) top left / 1px 10px no-repeat,
+    linear-gradient(var(--tick), var(--tick)) bottom right / 10px 1px no-repeat,
+    linear-gradient(var(--tick), var(--tick)) bottom right / 1px 10px no-repeat;
+  --panel: linear-gradient(180deg, rgba(255, 255, 255, .035), rgba(255, 255, 255, 0) 60%), rgba(16, 15, 20, .88);
+}
+body { font-family: var(--oxa); background: var(--ink); color: var(--ivory); }
+.num, .pstack, .ledger dd, .tstakes, .pot b, .betlabel, .raise-row output, .act small, .go-stats dd { font-variant-numeric: tabular-nums; }
+
+/* ---------- アイコン（Material Symbols Sharp・細線） ---------- */
+.ms {
+  font-family: 'Material Symbols Sharp'; font-weight: normal; font-style: normal; font-size: 18px; line-height: 1;
+  letter-spacing: 0; text-transform: none; white-space: nowrap; direction: ltr; display: inline-block;
+  -webkit-font-smoothing: antialiased; font-feature-settings: 'liga';
+  font-variation-settings: 'FILL' 0, 'wght' 200, 'GRAD' 0, 'opsz' 20;
+  color: var(--gold);
+}
+
+/* ---------- 文字 ---------- */
+.eyebrow { font-family: var(--oxa); font-size: 10px; letter-spacing: .5em; color: var(--gold); }
+.field > span { font-family: var(--oxa); letter-spacing: .3em; }
+.field input, .field select { font-family: 'Zen Kaku Gothic New', var(--oxa); border-bottom-color: rgba(217, 192, 138, .5); }
+
+/* ---------- ボタン ---------- */
+.btn, .act, .presets button {
+  font-family: var(--oxa); font-weight: 500; letter-spacing: .18em; border-radius: 0;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-color: var(--gold-line); background: var(--ticks), var(--panel); }
+.btn:hover { background: var(--ticks), var(--panel); border-color: var(--gold); }
+.btn-primary {
+  border-color: rgba(217, 192, 138, .75); color: #f6ecd2;
+  background: var(--ticks), linear-gradient(180deg, rgba(232, 204, 140, .08), rgba(232, 204, 140, 0) 70%), rgba(16, 15, 20, .9);
+  box-shadow: 0 0 14px var(--glow-soft), inset 0 -1px 0 rgba(242, 226, 184, .7), 0 2px 10px -2px var(--glow-gold);
+}
+.btn-primary:hover { box-shadow: 0 0 20px var(--glow-gold), inset 0 -1px 0 var(--gold-hi), 0 2px 12px -2px var(--glow-gold); }
+.btn-primary .ms { color: var(--gold-hi); }
+.btn-ghost { background: transparent; border-color: transparent; color: var(--ivory-2); }
+.btn-ghost:hover { background: transparent; border-color: var(--gold-faint); color: var(--ivory); }
+.btn-ghost .ms { color: var(--ivory-2); }
+.btn-ghost:hover .ms { color: var(--gold); }
+.btn-icon { padding: 0 8px; }
+.btn-icon .ms { font-size: 20px; }
+
+/* ---------- 入口 ---------- */
+#gate { background: radial-gradient(ellipse 60% 70% at 50% 40%, var(--glow-soft), transparent 70%); }
+.crest { color: var(--gold); opacity: .8; }
+.wordmark {
+  font-family: var(--oxa); font-weight: 300; letter-spacing: .42em; padding-left: .42em;
+  background: none; -webkit-background-clip: border-box; background-clip: border-box; color: var(--gold-hi);
+  text-shadow: 0 0 18px var(--glow-gold), 0 0 2px rgba(242, 226, 184, .6); filter: none;
+}
+.tagline { font-family: var(--oxa); font-style: normal; font-size: 11px; letter-spacing: .3em; text-transform: uppercase; color: var(--ivory-2); }
+.tagline .dia { width: 4px; height: 4px; }
+.btn-wide { letter-spacing: .42em; }
+.fine { font-family: 'Zen Kaku Gothic New', var(--oxa); }
+
+/* ---------- 上部バー ---------- */
+.topbar { background: linear-gradient(180deg, rgba(8, 8, 10, .9), rgba(8, 8, 10, .4)); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.topbar::after { background: linear-gradient(90deg, transparent, var(--gold-line) 15%, var(--gold-line) 85%, transparent); box-shadow: none; }
+.brand { font-family: var(--oxa); font-weight: 300; letter-spacing: .42em; color: var(--gold-hi); text-shadow: 0 0 12px var(--glow-soft); }
+.brand small { font-style: normal; text-transform: uppercase; letter-spacing: .3em; font-size: 10px; }
+.room-title strong { font-family: var(--oxa); font-weight: 500; letter-spacing: .18em; text-transform: uppercase; }
+.room-title span { font-family: var(--oxa); letter-spacing: .24em; color: var(--gold); }
+.r-wallet { font-family: var(--oxa); }
+
+/* ---------- 面（会員カード・ダイアログ・席の札・記録・結果） ---------- */
+.member, dialog, .plaque, .logpanel, .result .r-line, .toast {
+  background: var(--panel); border: 1px solid var(--gold-line);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .55);
+}
+.framed::before { opacity: .9; }
+.plaque { background: var(--ticks), var(--panel); }
+.plaque::after { display: none; }
+.pname { font-family: var(--oxa); font-weight: 500; letter-spacing: .06em; }
+.plevel { font-family: 'Zen Kaku Gothic New', var(--oxa); color: var(--gold); }
+.pstack { font-family: var(--oxa); font-weight: 500; }
+.paction { font-family: var(--oxa); letter-spacing: .24em; color: var(--ivory-2); }
+.paction.hot, .phand { color: var(--gold-hi); }
+.seat.turn .plaque {
+  border-color: rgba(242, 226, 184, .85);
+  box-shadow: 0 0 0 1px rgba(232, 204, 140, .25), 0 0 18px var(--glow-gold), 0 12px 30px rgba(0, 0, 0, .55);
+}
+.seat.turn .plaque::before { background: linear-gradient(90deg, transparent, var(--gold-hi), transparent); }
+.ptimer { height: 1px; }
+.ptimer i { background: var(--gold-hi); box-shadow: 0 0 6px var(--glow-gold); }
+.seat.folded .plaque, .seat.away .plaque { opacity: .4; }
+.seat .ribbon { font-family: var(--oxa); letter-spacing: .2em; }
+.seat.empty .btn { background: var(--ticks), var(--panel); }
+.seat.empty .vacant { font-family: var(--oxa); font-style: normal; text-transform: uppercase; font-size: 11px; letter-spacing: .3em; border-color: var(--gold-faint); }
+
+/* ---------- ロビー ---------- */
+.m-name { font-family: 'Zen Kaku Gothic New', var(--oxa); font-weight: 500; }
+.m-no { font-family: var(--oxa); }
+.ledger dt { font-family: 'Zen Kaku Gothic New', var(--oxa); color: var(--ivory-2); }
+.ledger dd { font-family: var(--oxa); font-weight: 400; }
+.ledger .best dd { color: var(--gold-hi); text-shadow: 0 0 10px var(--glow-soft); }
+.sigil { font-family: 'Zen Kaku Gothic New', var(--oxa); }
+.sec-head h2 { font-family: 'Zen Kaku Gothic New', var(--oxa); font-weight: 500; }
+.tnum { font-family: var(--oxa); font-style: normal; font-weight: 300; color: var(--gold); }
+.tname strong { font-family: var(--oxa); font-weight: 500; letter-spacing: .14em; text-transform: uppercase; }
+.tstakes { font-family: var(--oxa); }
+
+/* ---------- 卓の上 ---------- */
+.pot small { font-family: var(--oxa); letter-spacing: .4em; color: var(--gold); }
+.pot b { font-family: var(--oxa); color: var(--gold-hi); text-shadow: 0 0 10px var(--glow-gold), 0 1px 3px #000; }
+.betlabel { font-family: var(--oxa); }
+.result .r-line { font-family: 'Zen Kaku Gothic New', var(--oxa); border-top: 1px solid var(--gold-line); border-bottom: 1px solid var(--gold-line); box-shadow: 0 0 18px var(--glow-soft), 0 12px 30px rgba(0, 0, 0, .55); }
+.result .r-line b { font-family: var(--oxa); color: var(--gold-hi); text-shadow: 0 0 8px var(--glow-gold); }
+.dealer {
+  font-family: var(--oxa); font-weight: 600; color: #15120c;
+  background: radial-gradient(circle at 35% 30%, #fbf1d6, #d9c08a 70%, #a88d57);
+  box-shadow: 0 0 10px var(--glow-gold), 0 2px 6px rgba(0, 0, 0, .7);
+}
+.slot { border-color: var(--gold-faint); background: rgba(10, 10, 12, .3); box-shadow: none; }
+/* カード：数字とマークを Oxanium で読みやすく */
+.card { font-family: var(--oxa); }
+.card .cr { font-weight: 600; letter-spacing: -.02em; }
+
+/* ---------- 操作バー ---------- */
+.actionbar { background: linear-gradient(180deg, rgba(8, 8, 10, .2), rgba(8, 8, 10, .9) 45%); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.actionbar::before { background: linear-gradient(90deg, transparent, var(--gold-line) 15%, var(--gold-line) 85%, transparent); box-shadow: none; }
+.ab-hand { font-family: 'Zen Kaku Gothic New', var(--oxa); font-weight: 500; color: var(--gold-hi); }
+.ab-note { font-family: 'Zen Kaku Gothic New', var(--oxa); }
+.ab-clock { font-family: var(--oxa); letter-spacing: .14em; }
+.act {
+  display: grid; grid-template-columns: auto auto; column-gap: 6px; align-items: center; justify-content: center; align-content: center;
+  border-color: var(--gold-line); background: var(--ticks), var(--panel); color: var(--ivory);
+}
+.act > span:not(.ms) { font-size: 13px; letter-spacing: .22em; }
+.act small { grid-column: 1 / -1; text-align: center; font-family: var(--oxa); font-size: 12px; letter-spacing: .06em; color: var(--ivory-2); }
+.act kbd { grid-column: 1 / -1; text-align: center; font-family: var(--oxa); }
+.act.fold { color: var(--ivory-2); }
+.act.fold .ms { color: var(--ivory-2); }
+.act.call { border-color: rgba(217, 192, 138, .5); }
+.act.raise {
+  border-color: rgba(217, 192, 138, .8); color: #f6ecd2;
+  background: var(--ticks), linear-gradient(180deg, rgba(232, 204, 140, .08), rgba(232, 204, 140, 0) 70%), rgba(16, 15, 20, .9);
+  box-shadow: 0 0 14px var(--glow-soft), inset 0 -1px 0 rgba(242, 226, 184, .7), 0 2px 10px -2px var(--glow-gold);
+}
+.act.raise small { color: var(--gold-hi); }
+.act.raise .ms { color: var(--gold-hi); }
+.act:hover { border-color: var(--gold); }
+.presets button { display: inline-flex; align-items: center; justify-content: center; gap: 3px; font-weight: 400; letter-spacing: .12em; border-color: var(--gold-faint); background: transparent; }
+.presets button .ms { font-size: 12px; }
+.raise-row output { font-family: var(--oxa); font-weight: 500; color: var(--gold-hi); text-shadow: 0 0 8px var(--glow-soft); }
+input[type=range]::-webkit-slider-runnable-track { height: 1px; background: linear-gradient(90deg, var(--gold-hi), var(--gold-line)); box-shadow: 0 0 6px var(--glow-soft); }
+input[type=range]::-webkit-slider-thumb { width: 12px; height: 12px; margin-top: -6px; background: var(--ink); box-shadow: inset 0 0 0 1px var(--gold-hi), 0 0 8px var(--glow-gold); }
+input[type=range]::-moz-range-thumb { background: var(--ink); box-shadow: inset 0 0 0 1px var(--gold-hi), 0 0 8px var(--glow-gold); }
+
+/* ---------- ダイアログ・記録・お知らせ ---------- */
+dialog { color: var(--ivory); }
+.dlg-box h3 { font-family: 'Zen Kaku Gothic New', var(--oxa); font-weight: 500; letter-spacing: .12em; }
+.dlg-box p.note { font-family: 'Zen Kaku Gothic New', var(--oxa); }
+.amount { font-family: var(--oxa); font-weight: 300; color: var(--gold-hi); text-shadow: 0 0 12px var(--glow-gold); }
+.range-ends { font-family: var(--oxa); }
+.seg span { font-family: var(--oxa); font-variant-numeric: tabular-nums; }
+.seg input:checked + span { background: rgba(232, 204, 140, .12); color: var(--gold-hi); box-shadow: inset 0 -1px 0 var(--gold-hi); }
+.logpanel { border-left: 1px solid var(--gold-line); }
+#log { font-family: 'Zen Kaku Gothic New', var(--oxa); }
+#log li.sep { font-family: var(--oxa); letter-spacing: .2em; }
+.toast { font-family: 'Zen Kaku Gothic New', var(--oxa); }
+.toast.gold { border-color: rgba(217, 192, 138, .75); box-shadow: 0 0 14px var(--glow-soft), 0 12px 30px rgba(0, 0, 0, .55); }
+.invite .sign { font-family: var(--oxa); font-style: normal; letter-spacing: .2em; }
+.gameover h3 { letter-spacing: .24em; }
+.go-stats dt { font-family: 'Zen Kaku Gothic New', var(--oxa); }
+.go-stats dd { font-family: var(--oxa); }
+.go-new { font-family: var(--oxa); background: var(--gold-hi); box-shadow: 0 0 10px var(--glow-gold); }
+.rotate-msg { font-family: 'Zen Kaku Gothic New', var(--oxa); }
+
+/* ---------- 横向きのスマホ ---------- */
+@media (orientation: landscape) and (max-height: 520px) {
+  .wordmark { letter-spacing: .38em; padding-left: .38em; }
+  .room-bar .btn-ghost { gap: 4px; letter-spacing: .14em; }
+  .room-bar .btn-ghost .ms { font-size: 16px; }
+  .act { height: 42px; min-width: 88px; padding: 0 10px; }
+  .act > span:not(.ms) { font-size: 11.5px; letter-spacing: .18em; }
+  .act .ms { font-size: 16px; }
+  .act small { font-size: 11px; }
+  .presets button { font-size: 9px; letter-spacing: .08em; }
+  .btn-wide .ms { font-size: 18px; }
+}

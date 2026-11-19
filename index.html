@@ -14,10 +14,13 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23060507'/%3E%3Cpath d='M16 5 L27 16 L16 27 L5 16Z' fill='none' stroke='%23c8a765' stroke-width='1.6'/%3E%3Cpath d='M16 11 L21 16 L16 21 L11 16Z' fill='%23c8a765'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Shippori+Mincho:wght@500;600&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+<!-- 文字：英数字は Oxanium、日本語は Zen Kaku Gothic New。アイコン：Material Symbols Sharp（使う分だけ読み込む）（2026-11-19） -->
+<link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@200..800&family=Zen+Kaku+Gothic+New:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Sharp:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&icon_names=add,arrow_back,bolt,chair,check,close,history,login,logout,north,replay,volume_off,volume_up&display=block" rel="stylesheet">
 <link rel="stylesheet" href="./css/style.css">
 <link rel="stylesheet" href="./css/theme-future.css">
 <link rel="stylesheet" href="./css/mobile-fit.css">
+<link rel="stylesheet" href="./css/theme-champagne.css">
 <script type="importmap">
 { "imports": { "three": "./vendor/three/build/three.module.js", "three/addons/": "./vendor/three/examples/jsm/", "cannon-es": "./vendor/cannon-es/cannon-es.js" } }
 </script>
@@ -43,7 +46,7 @@
           <input id="g-key" type="password" autocomplete="off">
         </label>
         <p class="gate-error" id="g-error" role="alert"></p>
-        <button class="btn btn-primary btn-wide" type="submit">入場する</button>
+        <button class="btn btn-primary btn-wide" type="submit"><span class="ms" aria-hidden="true">login</span><span>ENTER</span></button>
       </form>
       <p class="fine">チップは遊戯用の仮想チップです。金銭的価値はありません。</p>
     </div>
@@ -76,7 +79,7 @@
             <p class="eyebrow">Tonight</p>
             <h2>開いている卓</h2>
           </div>
-          <button class="btn btn-primary" id="b-new" type="button">卓を開く</button>
+          <button class="btn btn-primary" id="b-new" type="button"><span class="ms" aria-hidden="true">add</span><span>OPEN TABLE</span></button>
         </div>
         <ol class="table-list" id="table-list"></ol>
       </main>
@@ -86,17 +89,17 @@
   <!-- 卓 -->
   <section id="room" class="screen" hidden>
     <header class="topbar room-bar">
-      <button class="btn btn-ghost" id="b-back" type="button">ロビーへ</button>
+      <button class="btn btn-ghost" id="b-back" type="button" aria-label="ロビーへ"><span class="ms" aria-hidden="true">arrow_back</span><span>LOBBY</span></button>
       <div class="room-title">
         <strong id="r-name"></strong>
         <span id="r-stakes"></span>
       </div>
       <div class="room-tools">
         <span class="r-wallet" id="r-wallet"></span>
-        <button class="btn btn-ghost" id="b-rebuy" type="button" hidden>チップ追加</button>
-        <button class="btn btn-ghost" id="b-stand" type="button" hidden>席を立つ</button>
-        <button class="btn btn-ghost" id="b-log" type="button">記録</button>
-        <button class="btn btn-ghost" id="b-sound" type="button" aria-pressed="true">音：オン</button>
+        <button class="btn btn-ghost" id="b-rebuy" type="button" hidden aria-label="チップ追加"><span class="ms" aria-hidden="true">add</span><span>ADD</span></button>
+        <button class="btn btn-ghost" id="b-stand" type="button" hidden aria-label="席を立つ"><span class="ms" aria-hidden="true">logout</span><span>STAND</span></button>
+        <button class="btn btn-ghost" id="b-log" type="button" aria-label="記録"><span class="ms" aria-hidden="true">history</span><span>LOG</span></button>
+        <button class="btn btn-ghost btn-icon" id="b-sound" type="button" aria-pressed="true" aria-label="音：オン"><span class="ms" aria-hidden="true">volume_up</span></button>
       </div>
     </header>
     <div class="stage-area" id="stage-area">
@@ -116,7 +119,7 @@
       <p class="rotate-msg">卓は横向きでお楽しみください。<br>端末を横に傾けると表示されます。</p>
     </div>
     <aside class="logpanel" id="logpanel" hidden>
-      <div class="lp-head"><p class="eyebrow">Ledger</p><button class="btn btn-ghost btn-small" id="b-log-close" type="button">閉じる</button></div>
+      <div class="lp-head"><p class="eyebrow">Ledger</p><button class="btn btn-ghost btn-small" id="b-log-close" type="button" aria-label="閉じる"><span class="ms" aria-hidden="true">close</span><span>CLOSE</span></button></div>
       <ol id="log"></ol>
     </aside>
   </section>

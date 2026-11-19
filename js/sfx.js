@@ -1,20 +1,24 @@
-// 効果音（Web Audio）。素材は Kenney「Casino Audio」(CC0)、sfx/ に同梱。
+// 効果音（Web Audio）。素材は Freesound の CC0 音源を切り分けた WAV（sfx/fs/、出典は sfx/fs/CREDITS.txt）。2026-11-19 に差し替え。
+// （それまでの Kenney「Casino Audio」の OGG は sfx/ 直下に残っているが、もう読み込まない）
 // - 最初に画面を触ったときに音を出せる状態にする（iPhone はタップ前は音を出せない）。
 // - 読み込みや再生に失敗しても、エラーにせず無音で進める。
 // - 消音の設定は localStorage の 'nocturne.mute'（'1' で消音）。
 
 // 名前 → ファイル名の頭と個数（sw.js の SFX と同じ内容にする）
 export const SFX_FILES = {
-  shuffle: ['card-shuffle', 0],
-  slide: ['card-slide', 8],
-  place: ['card-place', 4],
-  shove: ['card-shove', 4],
-  lay: ['chip-lay', 3],
-  collide: ['chips-collide', 4],
-  handle: ['chips-handle', 6],
-  stack: ['chips-stack', 6],
+  shuffle: ['card-shuffle', 2], // ハンドの開始
+  slide: ['card-deal', 6], // 手札を配る
+  place: ['card-place', 4], // ボードをめくる
+  shove: ['card-fold', 2], // 降りる
+  lay: ['chip-roll', 6], // チップが卓に落ちて転がる（ダイスをフェルトに注ぐ鈍い音）
+  collide: ['chip-tick', 3], // チップ同士がぶつかる
+  handle: ['chip-handle', 3], // チップを投げる
+  stack: ['chip-stack', 4], // テッセラクトへの回収
+  payout: ['chip-payout', 0], // 配当
+  allin: ['chip-allin', 0], // オールイン
+  knock: ['knock', 2], // チェック（卓を2回ノック）
 };
-const VOL = { shuffle: 0.55, slide: 0.7, place: 0.8, shove: 0.6, lay: 0.5, collide: 0.45, handle: 0.6, stack: 0.55 };
+const VOL = { shuffle: 0.5, slide: 0.55, place: 0.6, shove: 0.45, lay: 0.42, collide: 0.3, handle: 0.5, stack: 0.5, payout: 0.55, allin: 0.6, knock: 0.55 };
 const GAP = 45; // 同じ音を続けて鳴らすときの最短間隔（ms）。物理の衝突で鳴りすぎないようにする
 
 let ctx = null, master = null, loading = null;
@@ -25,7 +29,7 @@ const log = []; // 確認用（#debug のときだけ外から見る）
 
 function fileList(name) {
   const [head, n] = SFX_FILES[name];
-  return n ? Array.from({ length: n }, (_, i) => `./sfx/${head}-${i + 1}.ogg`) : [`./sfx/${head}.ogg`];
+  return n ? Array.from({ length: n }, (_, i) => `./sfx/fs/${head}-${i + 1}.wav`) : [`./sfx/fs/${head}.wav`];
 }
 
 function load() {
@@ -36,7 +40,7 @@ function load() {
         const res = await fetch(url);
         if (!res.ok) return null;
         return await ctx.decodeAudioData(await res.arrayBuffer());
-      } catch { return null; } // OGG を扱えない端末では無音
+      } catch { return null; } // 読み込めない端末では無音
     }));
     buffers.set(name, list.filter(Boolean));
   }));
@@ -73,45 +77,33 @@ function env(g, t, peak, attack, decay) {
   g.gain.exponentialRampToValueAtTime(peak, t + attack);
   g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
 }
-// 卓を指で2回叩く（チェック）
-function knock(t, vol) {
-  for (const dt of [0, 0.12]) {
-    const o = ctx.createOscillator(), g = ctx.createGain();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(150, t + dt);
-    o.frequency.exponentialRampToValueAtTime(55, t + dt + 0.09);
-    env(g, t + dt, 0.55 * vol, 0.004, 0.11);
-    o.connect(g).connect(master);
-    o.start(t + dt); o.stop(t + dt + 0.16);
-    const n = noise(0.04), f = ctx.createBiquadFilter(), gn = ctx.createGain();
-    f.type = 'lowpass'; f.frequency.value = 900;
-    env(gn, t + dt, 0.25 * vol, 0.002, 0.035);
-    n.connect(f).connect(gn).connect(master);
-    n.start(t + dt);
-  }
-}
-// 自分の手番の合図（澄んだ2音）
+// 自分の手番の合図：小さな鈴のような、落ち着いた金属の響き（倍音をずらした2音が重なって減衰する）
 function turn(t, vol) {
-  [[659.3, 0], [987.8, 0.11]].forEach(([hz, dt]) => {
-    for (const [mul, k] of [[1, 1], [2, 0.18]]) {
+  [[784, 0], [1174.7, 0.09]].forEach(([hz, dt]) => {
+    for (const [mul, k, dec] of [[1, 1, 1.1], [2.76, 0.22, 0.45], [5.4, 0.07, 0.2]]) {
       const o = ctx.createOscillator(), g = ctx.createGain();
       o.type = 'sine';
       o.frequency.value = hz * mul;
-      env(g, t + dt, 0.18 * vol * k, 0.006, 0.55);
+      env(g, t + dt, 0.11 * vol * k, 0.004, dec);
       o.connect(g).connect(master);
-      o.start(t + dt); o.stop(t + dt + 0.6);
+      o.start(t + dt); o.stop(t + dt + dec + 0.05);
     }
   });
 }
-// ボタンを押したときのごく小さな音
+// ボタンを押したときの音：金属の小さなスイッチのような、短く乾いた音
 function click(t, vol) {
-  const n = noise(0.02), f = ctx.createBiquadFilter(), g = ctx.createGain();
-  f.type = 'bandpass'; f.frequency.value = 3200; f.Q.value = 1.2;
-  env(g, t, 0.22 * vol, 0.001, 0.025);
+  const n = noise(0.012), f = ctx.createBiquadFilter(), g = ctx.createGain();
+  f.type = 'bandpass'; f.frequency.value = 4200; f.Q.value = 2.5;
+  env(g, t, 0.16 * vol, 0.0008, 0.012);
   n.connect(f).connect(g).connect(master);
   n.start(t);
+  const o = ctx.createOscillator(), go = ctx.createGain();
+  o.type = 'sine'; o.frequency.value = 2350;
+  env(go, t, 0.05 * vol, 0.001, 0.03);
+  o.connect(go).connect(master);
+  o.start(t); o.stop(t + 0.05);
 }
-const SYNTH = { knock, turn, click };
+const SYNTH = { turn, click };
 
 export const sfx = {
   // name：SFX_FILES か SYNTH の名前。vol：0〜1。delay：ms

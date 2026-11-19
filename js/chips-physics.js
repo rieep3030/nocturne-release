@@ -637,6 +637,7 @@ export class TableStage {
 
   payout(d, amount) {
     const p = this.pile('win' + d);
+    this.schedule(700, () => this.onSound?.('payout')); // テッセラクトからチップが出始める頃に鳴らす
     this.emitTo(p, amount, this.anchors.win[d], 700, 0.45);
   }
 

@@ -1,11 +1,11 @@
 // オフライン用 Service Worker
 // 更新を公開するときは VERSION を変える（変えないと端末に古い版が残る）。
-const VERSION = 'nocturne-mobile-v4';
+const VERSION = 'nocturne-mobile-v6';
 const FONTS = 'nocturne-fonts-v1';
 
 const CORE = [
   './', './index.html', './manifest.webmanifest',
-  './css/style.css', './css/theme-future.css', './css/mobile-fit.css',
+  './css/style.css', './css/theme-future.css', './css/mobile-fit.css', './css/theme-champagne.css',
   './js/app.js', './js/local-server.js', './js/chips-physics.js',
   './js/engine/cards.js', './js/engine/evaluator.js', './js/engine/equity.js', './js/engine/bots.js',
   './js/engine/table.js', './js/engine/bot-worker.js',
@@ -29,11 +29,11 @@ const CORE = [
   './icons/icon-192.png', './icons/icon-512.png',
   './js/sfx.js',
 ];
-// 効果音（js/sfx.js の SFX_FILES と同じ内容にする）
-const SFX = { 'card-shuffle': 0, 'card-slide': 8, 'card-place': 4, 'card-shove': 4, 'chip-lay': 3, 'chips-collide': 4, 'chips-handle': 6, 'chips-stack': 6 };
+// 効果音（js/sfx.js の SFX_FILES と同じ内容にする。2026-11-19 から sfx/fs/ の WAV）
+const SFX = { 'card-shuffle': 2, 'card-deal': 6, 'card-place': 4, 'card-fold': 2, 'chip-roll': 6, 'chip-tick': 3, 'chip-handle': 3, 'chip-stack': 4, 'chip-payout': 0, 'chip-allin': 0, 'knock': 2 };
 for (const [head, n] of Object.entries(SFX)) {
-  if (!n) CORE.push(`./sfx/${head}.ogg`);
-  for (let i = 1; i <= n; i++) CORE.push(`./sfx/${head}-${i}.ogg`);
+  if (!n) CORE.push(`./sfx/fs/${head}.wav`);
+  for (let i = 1; i <= n; i++) CORE.push(`./sfx/fs/${head}-${i}.wav`);
 }
 
 self.addEventListener('install', e => {
