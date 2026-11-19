@@ -26,6 +26,15 @@ const buffers = new Map(); // 名前 → AudioBuffer の配列
 const lastAt = new Map();
 let muted = (() => { try { return localStorage.getItem('nocturne.mute') === '1'; } catch { return false; } })();
 const log = []; // 確認用（#debug のときだけ外から見る）
+// 診断用（#sound の診断表示が読む。2026-11-19）
+const diag = { unlocks: 0, resumes: 0, errors: [], loadFailed: 0, session: 'unsupported' };
+const noteError = (where, e) => { if (diag.errors.length < 8) diag.errors.push(`${where}: ${e && e.message ? e.message : e}`); };
+
+// iPhone では Web Audio が既定で「周囲の音（ambient）」扱いになり、サイレントモードで消される。
+// 対応している端末（Safari の Audio Session API）では「再生（playback）」扱いにして、サイレントモードでも鳴らす。
+try {
+  if (navigator.audioSession) { navigator.audioSession.type = 'playback'; diag.session = navigator.audioSession.type; }
+} catch (e) { noteError('audioSession', e); }
 
 function fileList(name) {
   const [head, n] = SFX_FILES[name];
@@ -38,30 +47,36 @@ function load() {
     const list = await Promise.all(fileList(name).map(async url => {
       try {
         const res = await fetch(url);
-        if (!res.ok) return null;
+        if (!res.ok) { diag.loadFailed++; noteError('fetch', `${url} ${res.status}`); return null; }
         return await ctx.decodeAudioData(await res.arrayBuffer());
-      } catch { return null; } // 読み込めない端末では無音
+      } catch (e) { diag.loadFailed++; noteError('decode', e); return null; } // 読み込めない端末では無音
     }));
     buffers.set(name, list.filter(Boolean));
   }));
   return loading;
 }
 
+// 画面を触ったときに音を出せる状態にする。iPhone では指を離したとき（touchend・click）でないと
+// 許可されないことがあるため、それらのたびに再開を試み、無音を一瞬鳴らして出力を開く
 function unlock() {
   try {
-    if (!ctx) {
+    diag.unlocks++;
+    if (!ctx || ctx.state === 'closed') {
       const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return;
+      if (!AC) { noteError('unlock', 'AudioContext なし'); return; }
       ctx = new AC();
       master = ctx.createGain();
       master.gain.value = muted ? 0 : 1;
       master.connect(ctx.destination);
+      loading = null;
       load();
     }
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-  } catch { /* 音を出せない環境では何もしない */ }
+    if (ctx.state !== 'running') { diag.resumes++; ctx.resume().catch(e => noteError('resume', e)); }
+    const b = ctx.createBuffer(1, 1, ctx.sampleRate), src = ctx.createBufferSource();
+    src.buffer = b; src.connect(ctx.destination); src.start(0);
+  } catch (e) { noteError('unlock', e); }
 }
-for (const ev of ['pointerdown', 'touchend', 'keydown']) window.addEventListener(ev, unlock, { capture: true, passive: true });
+for (const ev of ['pointerdown', 'touchend', 'click', 'keydown']) window.addEventListener(ev, unlock, { capture: true, passive: true });
 
 // ---------- 合成音（パックにない音） ----------
 function noise(dur) {
@@ -112,7 +127,8 @@ export const sfx = {
     if (now - (lastAt.get(name) || 0) < GAP && delay === 0) return;
     lastAt.set(name, now);
     if (log.length < 500) log.push({ name, vol: Math.round(vol * 100) / 100, at: Math.round(now) });
-    if (!ctx || muted || ctx.state !== 'running') return;
+    if (!ctx || muted) return;
+    if (ctx.state !== 'running') { diag.resumes++; ctx.resume().catch(e => noteError('resume', e)); return; } // 止まっていたら再開を試み、今回は鳴らさない
     try {
       const t = ctx.currentTime + delay / 1000;
       if (SYNTH[name]) { SYNTH[name](t, vol); return; }
@@ -132,5 +148,13 @@ export const sfx = {
     try { localStorage.setItem('nocturne.mute', muted ? '1' : '0'); } catch { /* 保存できなくても続ける */ }
     if (master) master.gain.value = muted ? 0 : 1;
   },
-  debug() { return { state: ctx ? ctx.state : 'none', loaded: [...buffers].map(([k, v]) => `${k}:${v.length}`), log }; },
+  debug() {
+    return {
+      state: ctx ? ctx.state : 'none', sampleRate: ctx ? ctx.sampleRate : 0, muted,
+      session: diag.session, unlocks: diag.unlocks, resumes: diag.resumes, loadFailed: diag.loadFailed, errors: diag.errors,
+      loaded: [...buffers].map(([k, v]) => `${k}:${v.length}`), log,
+    };
+  },
+  // 診断用：音を出せる状態にし直す
+  unlock,
 };

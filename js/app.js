@@ -894,6 +894,8 @@ async function init() {
     console.warn('3D 表示を使えません:', e);
   }
   requestAnimationFrame(frame);
+  // #sound を付けて開いたときだけ、効果音の診断表示を出す（2026-11-19）
+  if (location.hash.includes('sound')) import('./sound-debug.js').then(m => m.mountSoundDebug(sfx)).catch(e => console.warn('診断表示を出せません:', e));
   $('#g-key-wrap').hidden = true;
   const name = LOCAL.playerName() || local.get('nocturne.name');
   if (name) $('#g-name').value = name;
