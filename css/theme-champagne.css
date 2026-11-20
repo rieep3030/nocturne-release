@@ -208,3 +208,12 @@ dialog { color: var(--ivory); }
   .presets button { font-size: 9px; letter-spacing: .08em; }
   .btn-wide .ms { font-size: 18px; }
 }
+
+/* ---------- ネット対戦（2026-11-20） ---------- */
+.sec-actions { display: flex; gap: 8px; }
+.online-opt { display: flex; align-items: center; gap: 8px; font-family: 'Zen Kaku Gothic New', var(--oxa); font-size: 13px; color: var(--ivory-2); cursor: pointer; }
+.online-opt input { accent-color: var(--gold); width: 16px; height: 16px; }
+.online-opt input:disabled + .ms, .online-opt input:disabled ~ span { opacity: .5; }
+.room-code-input { font-family: var(--oxa) !important; font-size: 22px !important; letter-spacing: .5em; text-transform: uppercase; }
+#b-invite { color: var(--gold-hi); letter-spacing: .24em; }
+#b-invite .ms { color: var(--gold-hi); }

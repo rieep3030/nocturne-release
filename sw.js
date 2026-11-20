@@ -1,6 +1,6 @@
 // オフライン用 Service Worker
 // 更新を公開するときは VERSION を変える（変えないと端末に古い版が残る）。
-const VERSION = 'nocturne-mobile-v7';
+const VERSION = 'nocturne-mobile-v9';
 const FONTS = 'nocturne-fonts-v1';
 
 const CORE = [
@@ -27,7 +27,8 @@ const CORE = [
   './vendor/three/examples/jsm/lines/LineMaterial.js',
   './vendor/cannon-es/cannon-es.js',
   './icons/icon-192.png', './icons/icon-512.png',
-  './js/sfx.js', './js/sound-debug.js',
+  './js/sfx.js', './js/sound-debug.js', './js/online.js', './js/online-config.js',
+  './vendor/firebase/firebase-app.js', './vendor/firebase/firebase-auth.js', './vendor/firebase/firebase-database.js',
 ];
 // 効果音（js/sfx.js の SFX_FILES と同じ内容にする。2026-11-19 から sfx/fs/ の WAV）
 const SFX = { 'card-shuffle': 2, 'card-deal': 6, 'card-place': 4, 'card-fold': 2, 'chip-roll': 6, 'chip-tick': 3, 'chip-handle': 3, 'chip-stack': 4, 'chip-payout': 0, 'chip-allin': 0, 'knock': 2 };

@@ -640,7 +640,7 @@ class Table {
       if (s.inHand) cards = (i === me || reveal(i)) ? s.hole.map(toStr) : s.hole.map(() => '??');
       return {
         name: s.name, isBot: s.isBot, level: s.level, id: s.isBot ? null : s.id,
-        stack: s.stack, bet: s.bet, folded: s.folded, allIn: s.allIn, inHand: s.inHand,
+        stack: s.stack, bet: s.bet, total: s.total, pendingRebuy: s.pendingRebuy, folded: s.folded, allIn: s.allIn, inHand: s.inHand,
         sittingOut: s.sittingOut, disconnected: s.disconnected, leaving: s.leaving,
         lastAction: s.lastAction, cards, won: winAmt[i] || 0,
         handName: h && h.results && h.results.hands[i] ? h.results.hands[i].name : null,

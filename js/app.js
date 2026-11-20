@@ -1,6 +1,7 @@
 // NOCTURNE スマホ単体版（PC 版 public/app.js を元に、通信を端末内サーバーに差し替えたもの）
 import { createLocalServer } from './local-server.js';
 import { sfx } from './sfx.js';
+import { isOnlineReady, normalizeCode, isValidCode } from './online.js';
 const $ = (s, r = document) => r.querySelector(s);
 const el = (tag, cls, text) => {
   const e = document.createElement(tag);
@@ -57,6 +58,8 @@ function onMsg(m) {
       $('#g-error').textContent = m.error || '';
       break;
     case 'welcome':
+      // 招待リンク（?room=XXXXXX）から開いたら、入場後にその部屋へ入る
+      if (S.inviteCode && isOnlineReady()) { const c = S.inviteCode; S.inviteCode = null; setTimeout(() => send({ t: 'joinRoom', code: c }), 0); }
       local.set('nocturne.token', m.token);
       if (S.hello) S.hello.token = m.token;
       Object.assign(S, { levels: m.levels, stakes: m.stakes, gameOverBelow: m.gameOverBelow });
@@ -89,6 +92,12 @@ function onMsg(m) {
       break;
     case 'gameover':
       showGameOver(m);
+      break;
+    case 'room':
+      // ネット対戦の部屋（ホスト／参加者）。code が null なら部屋を出た
+      S.room = m.code ? { code: m.code, role: m.role } : null;
+      renderRoomBadge();
+      if (S.table) renderActions(S.table);
       break;
     case 'kicked':
       S.kicked = true;
@@ -235,6 +244,12 @@ function openCreate() {
     stakeF.append(seg);
     // CPU は卓のレートに応じて自動で座る（席は常に満席）
     const note = el('p', 'note', 'CPU は卓のレートに合わせて自動で座ります。高いレートほど手強い相手が増えます。');
+    // ネット対戦：部屋コードを作って友達を招く（友達が座ると CPU と入れ替わる）
+    const onF = el('label', 'online-opt');
+    const onI = el('input');
+    onI.type = 'checkbox';
+    onI.disabled = !isOnlineReady();
+    onF.append(onI, icon('group_add'), el('span', null, isOnlineReady() ? '友達を招く（ネット対戦の部屋にする）' : '友達を招く（ネット対戦は準備中です）'));
     const acts = el('div', 'dlg-actions');
     const cancel = btnIn(el('button', 'btn btn-ghost'), 'close', 'CANCEL');
     cancel.type = 'button';
@@ -242,15 +257,81 @@ function openCreate() {
     const ok = btnIn(el('button', 'btn btn-primary'), 'add', 'OPEN');
     ok.type = 'submit';
     acts.append(cancel, ok);
-    form.append(nameF, stakeF, note, acts);
+    form.append(nameF, stakeF, note, onF, acts);
     form.onsubmit = e => {
       e.preventDefault();
       const stake = form.querySelector('input[name=stake]:checked').value;
-      send({ t: 'createTable', name: nameI.value, stake });
+      send({ t: 'createTable', name: nameI.value, stake, online: onI.checked });
       close();
     };
     box.append(form);
   });
+}
+
+// ---------------- ネット対戦 ----------------
+function openJoin(prefill = '') {
+  dialog((box, close) => {
+    box.append(el('p', 'eyebrow', 'Join Room'), el('h3', null, '部屋に入る'));
+    if (!isOnlineReady()) {
+      box.append(el('p', 'note', 'ネット対戦は準備中です（接続情報が未設定）。'));
+      const acts = el('div', 'dlg-actions');
+      const c = btnIn(el('button', 'btn btn-ghost'), 'close', 'CLOSE');
+      c.onclick = close;
+      acts.append(c);
+      box.append(acts);
+      return;
+    }
+    const form = el('form', 'form-grid');
+    const f = el('label', 'field');
+    const input = el('input');
+    input.maxLength = 6;
+    input.autocapitalize = 'characters';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.placeholder = 'ABC234';
+    input.value = typeof prefill === 'string' ? prefill : '';
+    input.className = 'room-code-input';
+    f.append(el('span', null, '部屋コード（6文字）'), input);
+    const err = el('p', 'note');
+    input.oninput = () => { input.value = normalizeCode(input.value); err.textContent = ''; };
+    const acts = el('div', 'dlg-actions');
+    const c = btnIn(el('button', 'btn btn-ghost'), 'close', 'CANCEL');
+    c.type = 'button';
+    c.onclick = close;
+    const ok = btnIn(el('button', 'btn btn-primary'), 'login', 'JOIN');
+    ok.type = 'submit';
+    acts.append(c, ok);
+    form.append(f, el('p', 'note', 'ホストから聞いた部屋コードを入れてください。卓では自分の手持ちからバイインします。'), err, acts);
+    form.onsubmit = e => {
+      e.preventDefault();
+      const code = normalizeCode(input.value);
+      if (!isValidCode(code)) { err.textContent = '部屋コードは英字と数字の6文字です'; return; }
+      send({ t: 'joinRoom', code });
+      close();
+    };
+    box.append(form);
+  });
+}
+
+const inviteUrl = code => `${location.origin}${location.pathname}?room=${code}`;
+async function copyInvite() {
+  if (!S.room) return;
+  const url = inviteUrl(S.room.code);
+  try {
+    if (navigator.share) { await navigator.share({ title: 'NOCTURNE', text: `部屋コード ${S.room.code}`, url }); return; }
+    await navigator.clipboard.writeText(url);
+    toast('招待リンクをコピーしました', 'gold');
+  } catch {
+    toast(`部屋コード ${S.room.code}`, 'gold');
+  }
+}
+
+function renderRoomBadge() {
+  const b = $('#b-invite');
+  if (!S.room) { b.hidden = true; return; }
+  b.hidden = false;
+  btnIn(b, 'link', S.room.code);
+  b.setAttribute('aria-label', `部屋コード ${S.room.code}（招待リンクを送る）`);
 }
 
 // ---------------- ダイアログ ----------------
@@ -289,7 +370,7 @@ function brokeNote(box, need, close) {
 function openBuyIn(seat) {
   const t = S.table;
   dialog((box, close) => {
-    box.append(el('p', 'eyebrow', `Seat ${seat + 1}`), el('h3', null, 'バイイン'));
+    box.append(el('p', 'eyebrow', seat >= 0 ? `Seat ${seat + 1}` : 'Buy-in'), el('h3', null, 'バイイン'));
     const max = Math.min(t.maxBuyIn, Math.floor(S.me.wallet / 5) * 5);
     if (max < t.minBuyIn) { brokeNote(box, t.minBuyIn, close); return; }
     const init = Math.min(max, t.bb * 100);
@@ -691,6 +772,15 @@ function renderActions(t) {
   bar.append(info);
   if (t.myHand) info.append(el('span', 'ab-hand', t.myHand));
   if (!me) {
+    if (S.room && S.room.role === 'guest') {
+      info.append(el('span', 'ab-note', '座ると、次のハンドから CPU と入れ替わります。'));
+      const btns = el('div', 'ab-btns');
+      const b = btnIn(el('button', 'btn btn-primary'), 'chair', 'SIT');
+      b.onclick = () => openBuyIn(-1);
+      btns.append(b);
+      bar.append(btns);
+      return;
+    }
     info.append(el('span', 'ab-note', '空いている席の「着席」から座れます。'));
     return;
   }
@@ -839,6 +929,8 @@ function bind() {
     send(S.hello);
   };
   $('#b-new').onclick = openCreate;
+  $('#b-join').onclick = openJoin;
+  $('#b-invite').onclick = copyInvite;
   $('#b-back').onclick = () => send({ t: 'leaveTable' });
   $('#b-stand').onclick = () => send({ t: 'stand' });
   $('#b-rebuy').onclick = openRebuy;
@@ -883,6 +975,9 @@ function bind() {
 
 async function init() {
   bind();
+  // 招待リンク（?room=XXXXXX）で開いたら覚えておき、URL からは消す
+  const inv = normalizeCode(new URLSearchParams(location.search).get('room'));
+  if (isValidCode(inv)) { S.inviteCode = inv; history.replaceState(null, '', location.pathname + location.hash); }
   try {
     const m = await import('./chips-physics.js');
     stage = new m.TableStage($('#stage'));
