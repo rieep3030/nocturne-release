@@ -93,6 +93,20 @@ function onMsg(m) {
     case 'gameover':
       showGameOver(m);
       break;
+    case 'hostResume':
+      // ホストとして開いていた卓が、アプリを閉じたあとも残っている：戻るかどうかを聞く（2026-11-24）
+      dialog((box, close) => {
+        box.append(el('p', 'eyebrow', 'Room ' + m.code), el('h3', null, '前の卓に戻りますか？'));
+        box.append(el('p', 'note', `アプリを閉じる前に開いていた卓（${m.name}）が、まだ開いています。戻ると、途中だったハンドは無効になり、賭けたチップは各自に戻ります。戻らない場合、参加者のチップは60秒後にそれぞれの手持ちへ戻ります。`));
+        const acts = el('div', 'dlg-actions');
+        const no = btnIn(el('button', 'btn btn-ghost'), 'close', 'NOT NOW');
+        no.onclick = () => { close(); send({ t: 'resumeHost', code: m.code, yes: false }); };
+        const yes = btnIn(el('button', 'btn btn-primary'), 'replay', 'RETURN');
+        yes.onclick = () => { close(); send({ t: 'resumeHost', code: m.code, yes: true }); };
+        acts.append(no, yes);
+        box.append(acts);
+      });
+      break;
     case 'room':
       // ネット対戦の部屋（ホスト／参加者）。code が null なら部屋を出た
       S.room = m.code ? { code: m.code, role: m.role } : null;

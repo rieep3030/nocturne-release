@@ -105,6 +105,8 @@ export function hostApi(code) {
     writeState(uid, state) { return fb.set(roomRef(code, `private/${uid}/state`), JSON.stringify(state)).catch(() => {}); },
     // 精算：その人の手持ちに戻すチップを記録する（参加者側が一度だけ受け取る）
     payout(uid, amount, reason) { return fb.push(roomRef(code, `private/${uid}/payouts`), { amount, reason, at: fb.serverTimestamp() }).catch(() => {}); },
+    // 参加者の一覧を一度だけ読む（前の卓に戻るとき、まだ部屋にいる人を確かめる。2026-11-24）
+    async readMembers() { const s = await fb.get(roomRef(code, 'members')); return s.exists() ? s.val() : {}; },
     setMeta(patch) { return fb.update(roomRef(code, 'meta'), patch).catch(() => {}); },
     startPresence() { return presence(`rooms/${code}/meta/hostOnline`, `rooms/${code}/meta/hostLeftAt`); },
     close() {

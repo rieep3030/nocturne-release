@@ -109,20 +109,6 @@ export function createLocalServer(onMessage) {
 
   const send = msg => queueMicrotask(() => onMessage(msg));
 
-  // 同じブラウザで動かせるのは1つのタブだけ。あとから開いたタブは保存も操作もしない（B-17、2026-11-24 決定）
-  let lock = 'pending'; // 'owner' | 'denied' | 'pending'
-  let pendingHello = null;
-  const lockAcquired = ok => {
-    lock = ok ? 'owner' : 'denied';
-    if (ok) player = loadPlayer() || player; // 取れた時点の最新の記録を読み直す
-    if (pendingHello) { const m = pendingHello; pendingHello = null; safeHandle(m); }
-  };
-  if (typeof navigator !== 'undefined' && navigator.locks && navigator.locks.request) {
-    navigator.locks.request('nocturne.mobile.v1', { ifAvailable: true }, l => {
-      lockAcquired(!!l);
-      return l ? new Promise(() => {}) : undefined; // 取れたら、タブを閉じるまで持ち続ける
-    }).catch(() => lockAcquired(true));
-  } else lock = 'owner';
 
   const mySeat = () => (table && player ? table.seatOf(player.id) : -1);
   const chipsOnTable = () => {
@@ -150,13 +136,22 @@ export function createLocalServer(onMessage) {
 
   // 卓上のチップも保存しておき、次回起動時に手持ちへ戻す（アプリを閉じても失われないように）
   const write = () => {
-    if (lock !== 'owner') return; // 別のタブが動いているときは保存しない（B-17）
     if (guest) {
       player.tableStack = 0;
       player.online = { code: guest.code, uid: guest.api.uid, chips: chipsOnTable() };
     } else player.tableStack = chipsOnTable();
+    if (host && table) player.hostTable = hostSnapshot(); // 開き直したときに同じ卓へ戻るため（2026-11-24）
     try { localStorage.setItem(KEY, JSON.stringify(player)); } catch { /* 保存できない環境 */ }
   };
+  // ホストの卓の状態。ハンドの途中なら、そのハンドは無効にして拠出をチップに戻した額で残す（2026-11-24 決定）
+  const hostSnapshot = () => ({
+    code: host.code, stakeId: host.stakeId, name: table.name, at: Date.now(), button: table.button, handNo: table.handNo,
+    seats: table.seats.map(s => (s ? {
+      id: s.id, name: s.name, isBot: !!s.isBot, level: s.level || null, leaving: !!s.leaving,
+      stack: s.stack + s.pendingRebuy + (table.hand && !table.hand.over && s.inHand ? s.total : 0),
+    } : null)),
+    queue: host.queue.map(q => ({ uid: q.uid, amount: q.amount })),
+  });
   const save = () => {
     if (!player) return;
     clearTimeout(saveTimer);
@@ -394,7 +389,13 @@ export function createLocalServer(onMessage) {
     const api = on.hostApi(code);
     // 部屋を作っている間に、卓を離れた・別の部屋に入った・卓を作り直した：作った部屋は閉じる（B-13）
     if (table !== tb || guest || host || !viewing) { api.close(); return null; }
-    host = { code, api, remotes: new Map(), queue: [], offs: [], stakeId: stake.id };
+    attachHost(api, code, stake);
+    return code;
+  }
+
+  // 部屋のホストとして、接続状態の見張り・参加者の一覧・受付箱の受け取りを始める（新しい部屋でも、戻った部屋でも）
+  function attachHost(api, code, stake, queue = []) {
+    host = { code, api, remotes: new Map(), queue, offs: [], stakeId: stake.id };
     host.offs.push(api.startPresence());
     host.offs.push(api.watchMembers((kind, uid, v) => {
       if (!host) return;
@@ -417,7 +418,63 @@ export function createLocalServer(onMessage) {
     }));
     send({ t: 'room', code, role: 'host' });
     hostSync();
-    return code;
+  }
+
+  // 開き直したとき：前の卓の部屋がまだ閉じていなければ、戻るかどうかを画面に聞く
+  async function offerHostResume() {
+    const snap = player.hostTable;
+    if (!snap || !snap.code) return;
+    try {
+      const on = await loadOnline();
+      if (!on.isOnlineReady()) return;
+      const meta = await on.readRoom(snap.code);
+      if (player.hostTable !== snap) return;
+      if (!meta || meta.closed) { delete player.hostTable; saveNow(); return; } // もう戻れない
+      if (table || guest) return;
+      send({ t: 'hostResume', code: snap.code, name: snap.name });
+    } catch { /* 読めなければ今回は聞かない（次の起動でまた聞く） */ }
+  }
+
+  // 前の卓に戻る：同じ部屋コードで卓を作り直す。参加者の席は、部屋の参加者一覧に残っている人だけ戻す
+  // （60秒が過ぎて自分でチップを戻して出た人は戻さない＝二重に払わない）
+  async function resumeHost(snap) {
+    const stake = CONFIG.stakes.find(s => s.id === snap.stakeId);
+    if (!stake || !Array.isArray(snap.seats)) throw new Error('卓の記録が壊れています');
+    const on = await loadOnline();
+    const api = on.hostApi(snap.code);
+    const members = (await api.readMembers()) || {};
+    if (table || guest || host || player.hostTable !== snap) return;
+    const mine = snap.seats.find(s => s && s.id === player.id && !s.leaving);
+    const myAmt = mine ? mine.stack : 0;
+    if (myAmt > player.wallet) throw new Error('手持ちが足りません');
+    const tb = createTable(snap.name, stake);
+    tb.button = snap.button;
+    tb.handNo = snap.handNo || 0;
+    // 自分の席を先に戻す（CPU を座らせる途中でゲームオーバーの判定が走っても、手持ち＋卓上が正しくなるように）
+    snap.seats.forEach((s, i) => {
+      if (s && s === mine && myAmt > 0) { player.wallet -= myAmt; tb.sit(i, player, myAmt); }
+    });
+    snap.seats.forEach((s, i) => {
+      if (!s || s === mine || s.id === player.id) return;
+      if (s.isBot) {
+        if (!LEVELS[s.level]) return;
+        tb.addBot(i, s.level);
+        tb.seats[i].name = s.name;
+        tb.seats[i].stack = s.stack;
+        return;
+      }
+      const uid = String(s.id).replace(/^fb:/, '');
+      if (s.leaving) { if (s.stack > 0) api.payout(uid, s.stack, 'cashout'); return; } // 出ていく途中だった人には精算を書く
+      if (!members[uid] || !(s.stack > 0)) return;
+      tb.sit(i, { id: s.id, name: s.name }, s.stack);
+    });
+    attachHost(api, snap.code, stake, (snap.queue || []).filter(q => members[q.uid]));
+    viewing = true;
+    send({ t: 'toast', text: '前の卓（部屋 ' + snap.code + '）に戻りました', kind: 'gold' });
+    send({ t: 'created', tableId: tb.id });
+    sendTable();
+    saveNow();
+    sendMe();
   }
 
   // 自分が作った部屋のうち、作ってから7日以上たち、閉じている（またはホストがいない・もう無い）ものを消す
@@ -439,6 +496,7 @@ export function createLocalServer(onMessage) {
   function closeHost() {
     if (!host) return;
     const h = host; host = null;
+    delete player.hostTable; // 正しく閉じたので、戻る先はない
     h.offs.forEach(o => o && o());
     for (const r of h.remotes.values()) { clearTimeout(r.timer); r.offInbox && r.offInbox(); }
     for (const q of h.queue) h.api.payout(q.uid, q.amount, 'closed');
@@ -651,9 +709,6 @@ export function createLocalServer(onMessage) {
   }
 
   function handle(msg) {
-    // 別のタブで動いているときは使わせない（B-17）。確かめている間に届いた入場は、確かめ終わってから処理する
-    if (lock === 'pending') { if (msg.t === 'hello') pendingHello = msg; return; }
-    if (lock === 'denied') { send({ t: 'gate', error: '別のタブで NOCTURNE を開いています。このタブを閉じてください（もう一方を閉じたあとなら、読み込み直すと使えます）' }); return; }
     if (msg.t !== 'hello' && !player) throw new Error('先に入場してください');
     if (guest && guestHandle(msg)) return;
     switch (msg.t) {
@@ -682,6 +737,15 @@ export function createLocalServer(onMessage) {
         if (viewing && (table || guest)) sendTable();
         else send({ t: 'lobby', tables: lobbyList() });
         if ((player.online || (player.pendingRooms || []).length) && !guest) resumeOnline();
+        if (player.hostTable && !table && !guest) offerHostResume();
+        return;
+      }
+      case 'resumeHost': { // 前の卓に戻るかどうかの答え
+        const snap = player.hostTable;
+        if (!snap || snap.code !== msg.code) return;
+        if (!msg.yes) { delete player.hostTable; saveNow(); return; } // 戻らない：参加者は60秒で各自チップを戻す
+        if (table || guest) throw new Error('いまの卓を離れてから戻ってください');
+        resumeHost(snap).catch(e => send({ t: 'error', text: '前の卓に戻れませんでした：' + (e.message || e) }));
         return;
       }
       case 'joinRoom': {
