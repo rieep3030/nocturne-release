@@ -1,6 +1,6 @@
 // オフライン用 Service Worker
 // 更新を公開するときは VERSION を変える（変えないと端末に古い版が残る）。
-const VERSION = 'nocturne-mobile-v9';
+const VERSION = 'nocturne-mobile-v11';
 const FONTS = 'nocturne-fonts-v1';
 
 const CORE = [
@@ -38,7 +38,8 @@ for (const [head, n] of Object.entries(SFX)) {
 }
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(CORE)).then(() => self.skipWaiting()));
+  // ブラウザの HTTP キャッシュを通さずに取りにいく（前の版のファイルが新しい版の控えに入らないように。B-23）
+  e.waitUntil(caches.open(VERSION).then(c => c.addAll(CORE.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {

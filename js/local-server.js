@@ -36,6 +36,11 @@ function shuffle(a) {
 
 const HOST_GONE_MS = 60000; // ホストの接続が切れてから卓を閉じたとみなすまで
 const GUEST_GRACE_MS = CONFIG.disconnectGraceSeconds * 1000; // 参加者が切れてから席を外すまで
+// ホストが作った部屋は、作ってからこの日数がたち、閉じている（またはホストがいない）ものを、次に部屋を作るときに消す。
+// 参加者が精算（payouts）を受け取るための猶予（2026-11-20 決定）
+const ROOM_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
+// 受け取り済みの精算の記録（部屋ごと）は、部屋が消えるまでの期間より1日長く残す（B-01）
+const PAID_KEEP_MS = ROOM_KEEP_MS + 24 * 60 * 60 * 1000;
 const loadOnline = () => import('./online.js');
 
 const KEY = 'nocturne.mobile.v1';
@@ -58,6 +63,11 @@ function loadPlayer() {
       delete p.debt; delete p.refillAt;
       if (!p.run) p.run = newRun((p.wallet || 0) + (p.tableStack || 0)); // 移行時はその時点の額から数える
       if (!p.best) p.best = newBest();
+      // 受け取り済みの精算の記録を、player.online から部屋ごとの記録へ移す（B-01）
+      if (p.online && p.online.code && Array.isArray(p.online.paid)) {
+        p.paidByRoom = { ...(p.paidByRoom || {}), [p.online.code]: { at: Date.now(), keys: p.online.paid } };
+        delete p.online.paid;
+      }
       return p;
     }
   } catch { /* 読めなければ新規 */ }
@@ -99,25 +109,51 @@ export function createLocalServer(onMessage) {
 
   const send = msg => queueMicrotask(() => onMessage(msg));
 
+  // 同じブラウザで動かせるのは1つのタブだけ。あとから開いたタブは保存も操作もしない（B-17、2026-11-24 決定）
+  let lock = 'pending'; // 'owner' | 'denied' | 'pending'
+  let pendingHello = null;
+  const lockAcquired = ok => {
+    lock = ok ? 'owner' : 'denied';
+    if (ok) player = loadPlayer() || player; // 取れた時点の最新の記録を読み直す
+    if (pendingHello) { const m = pendingHello; pendingHello = null; safeHandle(m); }
+  };
+  if (typeof navigator !== 'undefined' && navigator.locks && navigator.locks.request) {
+    navigator.locks.request('nocturne.mobile.v1', { ifAvailable: true }, l => {
+      lockAcquired(!!l);
+      return l ? new Promise(() => {}) : undefined; // 取れたら、タブを閉じるまで持ち続ける
+    }).catch(() => lockAcquired(true));
+  } else lock = 'owner';
+
   const mySeat = () => (table && player ? table.seatOf(player.id) : -1);
   const chipsOnTable = () => {
     if (guest) {
       const st = guest.state;
       const s = st && st.mySeat >= 0 ? st.seats[st.mySeat] : null;
-      return s ? s.stack + (s.total || 0) + (s.pendingRebuy || 0) : 0;
+      // 拠出額 total はハンドが終わっていないときだけ数える（結果の表示中は配当が stack に入っている。B-08）
+      const seat = s ? s.stack + (st.over ? 0 : (s.total || 0)) + (s.pendingRebuy || 0) : 0;
+      return seat + (guest.pending || 0); // 送ったが、まだ座っていないバイインも卓上に数える（B-04）
     }
     const i = mySeat();
     if (i < 0) return 0;
     const s = table.seats[i];
-    return s.stack + s.total + s.pendingRebuy;
+    return s.stack + (table.hand && !table.hand.over ? s.total : 0) + s.pendingRebuy; // B-08（Table.close() と同じ条件）
   };
-  const total = () => player.wallet + chipsOnTable();
+  // 卓に残したまま、まだ戻っていないチップ（前回の卓・精算待ちの部屋）。ゲームオーバーの判定に数える（B-07・B-10）
+  const unsettled = () => {
+    let n = 0;
+    const o = player.online;
+    if (o && o.code && !guest) n += o.left ? (o.awaiting || 0) : (o.chips || 0);
+    for (const r of player.pendingRooms || []) n += r.left ? (r.awaiting || 0) : (r.chips || 0);
+    return n;
+  };
+  const total = () => player.wallet + chipsOnTable() + unsettled();
 
   // 卓上のチップも保存しておき、次回起動時に手持ちへ戻す（アプリを閉じても失われないように）
   const write = () => {
+    if (lock !== 'owner') return; // 別のタブが動いているときは保存しない（B-17）
     if (guest) {
       player.tableStack = 0;
-      player.online = { code: guest.code, uid: guest.api.uid, chips: chipsOnTable(), paid: player.online?.paid || [] };
+      player.online = { code: guest.code, uid: guest.api.uid, chips: chipsOnTable() };
     } else player.tableStack = chipsOnTable();
     try { localStorage.setItem(KEY, JSON.stringify(player)); } catch { /* 保存できない環境 */ }
   };
@@ -183,6 +219,10 @@ export function createLocalServer(onMessage) {
     if (total() >= GAMEOVER_BELOW) return false;
     ending = true;
     if (guest) leaveGuest('gameover');
+    // ネット対戦の卓に残っていた分の精算は、あとから届いても足さない（オフラインの卓と同じ。B-16、2026-11-24 決定）
+    for (const o of [player.online, ...(player.pendingRooms || [])]) if (o && o.code) paidBook(o.code).forfeit = true;
+    player.online = null;
+    player.pendingRooms = [];
     if (table) { table.close(); table = null; closeHost(); } // 残りの卓上チップは手持ちに戻る（友達の分は精算を書く）
     viewing = false;
     const run = { ...player.run, end: player.wallet, ended: Date.now() };
@@ -253,6 +293,10 @@ export function createLocalServer(onMessage) {
       syncQueued = false;
       if (!host || !table) return;
       processSitQueue();
+      // ハンドの合間に席待ちの人がいなければ、空席（席0＝ホストの席を除く）を CPU で埋める（仕様「空席は CPU」。B-20）
+      if (!table.hand && !host.queue.length) {
+        for (let k = 1; k < SEATS; k++) if (!table.seats[k]) table.addBot(k, pick(LINEUP[host.stakeId] || LINEUP.low));
+      }
       for (const [uid, r] of host.remotes) host.api.writeState(uid, { ...table.publicState(r.pid), room: host.code });
     });
   }
@@ -262,14 +306,19 @@ export function createLocalServer(onMessage) {
     while (host.queue.length) {
       const q = host.queue[0];
       const r = host.remotes.get(q.uid);
-      if (!r || table.seatOf(r.pid) >= 0) { host.queue.shift(); continue; }
-      const free = table.seats.findIndex(x => !x);
+      if (!r || table.seatOf(r.pid) >= 0) {
+        host.queue.shift();
+        if (r) host.api.payout(q.uid, q.amount, 'refund'); // すでに座っている人の2件目のバイインは返す（B-03）
+        continue;
+      }
+      const free = table.seats.findIndex((x, k) => !x && k !== 0); // 席0はホストの席なので渡さない（B-21）
       if (free < 0) {
         if (!table.seats.some(x => x && x.isBot && x.leaving)) {
           const bots = table.seats.map((x, i) => (x && x.isBot ? i : -1)).filter(i => i >= 0);
           if (!bots.length) { host.queue.shift(); host.api.payout(q.uid, q.amount, 'nofree'); continue; }
-          const idle = bots.find(i => !table.seats[i].inHand);
-          table.removeSeat(idle !== undefined ? idle : bots[bots.length - 1]);
+          // 退いてもらうのは、ハンドに参加していないか、すでに降りた CPU だけ。いなければハンドが終わってから（B-19）
+          const idle = bots.find(i => !table.seats[i].inHand || table.seats[i].folded);
+          if (idle !== undefined) table.removeSeat(idle);
         }
         return; // 席が空くのは次のハンドの前
       }
@@ -287,20 +336,33 @@ export function createLocalServer(onMessage) {
     host.queue = host.queue.filter(q => { if (q.uid === uid && payout) host.api.payout(uid, q.amount, 'left'); return q.uid !== uid; });
     const i = table ? table.seatOf(r.pid) : -1;
     if (i >= 0) {
-      if (!payout) { const x = table.seats[i]; x.stack = 0; x.pendingRebuy = 0; } // 参加者が自分で手持ちに戻した
+      if (!payout) { // 参加者が自分で手持ちに戻した（ハンド中の拠出額を含む）
+        const x = table.seats[i];
+        x.stack = 0; x.pendingRebuy = 0;
+        // 拠出はポットから取り除き、残りの人でハンドを続ける（B-05、2026-11-24 決定）
+        if (table.hand && !table.hand.over && x.inHand) { x.total = 0; x.bet = 0; x.allIn = false; }
+      }
       table.removeSeat(i);
     }
+    // 出た人には「席なし」の状態を書いておく。最後の「着席中」の状態が残らないように（B-06）
+    if (table) host.api.writeState(uid, { ...table.publicState(null), room: host.code });
   }
 
   function handleRemote(uid, m) {
     const r = host && host.remotes.get(uid);
-    if (!r || !table) return;
+    if (!r) return;
+    if (!table) { // 卓がないときに届いたバイイン・追加の額は返す（B-13）
+      const amt = Math.round(int(m && m.amount) / UNIT) * UNIT;
+      if ((m.t === 'sit' || m.t === 'rebuy') && amt > 0) host.api.payout(uid, amt, 'refund');
+      return;
+    }
     const i = table.seatOf(r.pid);
     try {
       switch (m.t) {
         case 'sit': {
           const amt = Math.round(int(m.amount) / UNIT) * UNIT;
-          if (i >= 0 || !(amt >= table.minBuyIn && amt <= table.maxBuyIn)) { if (amt > 0) host.api.payout(uid, amt, 'refund'); return; }
+          // 着席済み・席待ち中の2件目（B-03）・範囲外の額は返す
+          if (i >= 0 || host.queue.some(q => q.uid === uid) || !(amt >= table.minBuyIn && amt <= table.maxBuyIn)) { if (amt > 0) host.api.payout(uid, amt, 'refund'); return; }
           host.queue.push({ uid, amount: amt });
           processSitQueue();
           hostSync();
@@ -323,10 +385,16 @@ export function createLocalServer(onMessage) {
   }
 
   async function startHost(stake) {
+    const tb = table;
     const on = await loadOnline();
-    const code = await on.createRoom({ name: table.name, sb: stake.sb, bb: stake.bb, hostName: player.name });
+    const code = await on.createRoom({ name: tb.name, sb: stake.sb, bb: stake.bb, hostName: player.name });
+    player.hostedRooms = [...(player.hostedRooms || []).filter(x => x.code !== code), { code, at: Date.now() }];
+    saveNow();
+    cleanupOldRooms(on, code).catch(() => {}); // 失敗しても次の機会にまた試す
     const api = on.hostApi(code);
-    host = { code, api, remotes: new Map(), queue: [], offs: [] };
+    // 部屋を作っている間に、卓を離れた・別の部屋に入った・卓を作り直した：作った部屋は閉じる（B-13）
+    if (table !== tb || guest || host || !viewing) { api.close(); return null; }
+    host = { code, api, remotes: new Map(), queue: [], offs: [], stakeId: stake.id };
     host.offs.push(api.startPresence());
     host.offs.push(api.watchMembers((kind, uid, v) => {
       if (!host) return;
@@ -352,6 +420,22 @@ export function createLocalServer(onMessage) {
     return code;
   }
 
+  // 自分が作った部屋のうち、作ってから7日以上たち、閉じている（またはホストがいない・もう無い）ものを消す
+  async function cleanupOldRooms(on, current) {
+    const now = Date.now();
+    const keep = [];
+    for (const x of player.hostedRooms || []) {
+      if (x.code === current || now - x.at < ROOM_KEEP_MS) { keep.push(x); continue; }
+      try {
+        const meta = await on.readRoom(x.code);
+        if (meta && !meta.closed && meta.hostOnline !== false) { keep.push(x); continue; } // まだ使われている
+        if (meta) await on.deleteRoom(x.code);
+      } catch { keep.push(x); } // 消せなかったものは次回また試す
+    }
+    player.hostedRooms = keep;
+    saveNow();
+  }
+
   function closeHost() {
     if (!host) return;
     const h = host; host = null;
@@ -363,11 +447,30 @@ export function createLocalServer(onMessage) {
   }
 
   // ================= ネット対戦：参加者側 =================
-  function creditPayout(key, v) {
-    const paid = (player.online && player.online.paid) || [];
-    if (paid.includes(key)) return;
-    paid.push(key);
-    player.online = { ...(player.online || {}), paid: paid.slice(-200) };
+  // 精算を一度だけ受け取る。受け取り済みの記録は部屋ごとに残す（player.online が消えても、別の部屋に入っても消さない。B-01）。
+  // 新しく受け取ったら true を返す
+  function paidBook(code) {
+    const book = player.paidByRoom || (player.paidByRoom = {});
+    const now = Date.now();
+    for (const c of Object.keys(book)) if (c !== code && !(now - (book[c].at || 0) < PAID_KEEP_MS)) delete book[c];
+    const rec = book[code] || (book[code] = { at: now, keys: [] });
+    rec.at = now;
+    return rec;
+  }
+  function creditPayout(code, key, v) {
+    const rec = paidBook(code);
+    if (rec.keys.includes(key)) return false;
+    rec.keys.push(key);
+    if (rec.keys.length > 500) rec.keys = rec.keys.slice(-500);
+    if (rec.forfeit) { saveNow(); return false; } // ゲームオーバーより前の卓の分は足さない（B-16）
+    // 精算待ちの部屋の残りを減らす（B-10）
+    const amtIn = Math.max(0, int(v && v.amount) || 0);
+    for (const o of [player.online, ...(player.pendingRooms || [])]) {
+      if (o && o.code === code && o.left && o.awaiting > 0) o.awaiting = Math.max(0, o.awaiting - amtIn);
+    }
+    // まだ座っていないバイインが返ってきた（B-04）
+    if (guest && guest.code === code && guest.pending > 0 && !(guest.state && guest.state.mySeat >= 0)
+      && ['refund', 'nofree', 'left', 'closed'].includes(v && v.reason)) guest.pending = 0;
     const amt = Math.max(0, int(v && v.amount) || 0);
     if (amt > 0) {
       player.wallet += amt;
@@ -376,35 +479,55 @@ export function createLocalServer(onMessage) {
     }
     saveNow();
     sendMe();
+    return true;
   }
 
   async function joinGuest(code, { quiet = false } = {}) {
     const on = await loadOnline();
     const { meta } = await on.joinRoom(code, player.name);
+    // すでに部屋にいる：同じ部屋なら何もしない。別の部屋なら先に片付ける（B-12）
+    if (guest) {
+      if (guest.code === code) return;
+      leaveGuest('switch');
+    }
     if (table) { ending = true; table.close(); ending = false; table = null; closeHost(); }
     const api = on.guestApi(code);
-    guest = { code, api, state: null, meta, offs: [], hostTimer: null };
+    // ゲームオーバーより前にこの部屋に残っていた精算は、受け取り済みとして記録だけする（B-16）
+    const rec = paidBook(code);
+    if (rec.forfeit) {
+      const old = await api.readPayouts().catch(() => ({}));
+      for (const k of Object.keys(old)) if (!rec.keys.includes(k)) rec.keys.push(k);
+      delete rec.forfeit;
+    }
+    if (guest) return; // 待っている間に別の参加が済んだ
+    // 精算待ちの前の部屋は、別の部屋に入っても忘れない（B-11）
+    const prev = player.online;
+    player.pendingRooms = (player.pendingRooms || []).filter(r => r.code !== code && !(prev && r.code === prev.code));
+    if (prev && prev.code && prev.code !== code) player.pendingRooms.push(prev);
+    const me = { code, api, state: null, meta, offs: [], hostTimer: null, pending: 0 };
+    guest = me;
     countedHand = -1;
-    player.online = { code, uid: api.uid, chips: 0, paid: (player.online && player.online.code === code && player.online.paid) || [] };
+    player.online = { code, uid: api.uid, chips: 0 };
     saveNow();
     guest.offs.push(api.startPresence());
-    guest.offs.push(api.watchPayouts((key, v) => creditPayout(key, v)));
+    guest.offs.push(api.watchPayouts((key, v) => creditPayout(code, key, v)));
     guest.offs.push(api.watchState(st => {
-      if (!guest) return;
+      if (guest !== me) return; // 前の部屋の購読が残っていても、今の部屋の状態を上書きしない（B-12）
       guest.state = st;
+      if (st.mySeat >= 0) guest.pending = 0; // バイインが席に反映された（B-04）
       countGuestHand(st);
       player.run.peak = Math.max(player.run.peak, total());
       save();
       if (!checkGameOver()) sendTable();
     }));
     guest.offs.push(api.watchMeta(m => {
-      if (!guest || !m) return;
+      if (guest !== me || !m) return;
       guest.meta = m;
       if (m.closed) { send({ t: 'toast', text: 'ホストが卓を閉じました', kind: 'gold' }); leaveGuest('closed', 4000); return; }
       clearTimeout(guest.hostTimer);
       if (m.hostOnline === false) {
         send({ t: 'toast', text: 'ホストとの接続が切れています。60秒待っても戻らなければ卓を閉じます', kind: 'err' });
-        guest.hostTimer = setTimeout(() => hostGone(), HOST_GONE_MS);
+        guest.hostTimer = setTimeout(() => { if (guest === me) hostGone(); }, HOST_GONE_MS); // 今の部屋のときだけ（B-12）
       }
     }));
     viewing = true;
@@ -428,12 +551,14 @@ export function createLocalServer(onMessage) {
   // 部屋を出る。しばらくは精算の受け取りを続ける
   function leaveGuest(reason, delay = 3000) {
     if (!guest) return;
+    const awaiting = chipsOnTable(); // 精算で戻ってくるはずの額（B-10）
     const g = guest; guest = null;
     clearTimeout(g.hostTimer);
     if (reason !== 'hostGone' && reason !== 'closed') g.api.send({ t: 'leave' }).catch(() => {});
     setTimeout(() => { g.offs.forEach(o => o && o()); g.api.leave(); }, delay);
     if (reason === 'hostGone' || reason === 'closed') player.online = null;
-    else if (player.online) player.online = { ...player.online, chips: 0, left: true }; // 次回の起動では精算だけ受け取り、部屋には戻らない
+    // 次回の起動では精算だけ受け取り、部屋には戻らない。届くまでは awaiting を手持ちの合計に数える
+    else if (player.online) player.online = { code: player.online.code, uid: player.online.uid, chips: 0, left: true, awaiting };
     viewing = false;
     countedHand = -1;
     saveNow();
@@ -442,26 +567,46 @@ export function createLocalServer(onMessage) {
   }
 
   // 起動時：前回ネット対戦の途中で閉じていたら、精算を受け取り、卓が続いていれば戻る
+  // 精算待ちの部屋（player.pendingRooms。B-11）もあわせて片付ける。並行して2回は動かさない（B-14）
+  let resuming = false;
   async function resumeOnline() {
-    const o = player.online;
-    if (!o || !o.code) return;
+    if (resuming) return;
+    const rooms = [player.online, ...(player.pendingRooms || [])].filter(x => x && x.code);
+    if (!rooms.length) return;
+    resuming = true;
     try {
       const on = await loadOnline();
       if (!on.isOnlineReady()) return;
-      const meta = await on.readRoom(o.code);
-      const api = on.guestApi(o.code);
-      const pays = await api.readPayouts();
-      for (const [k, v] of Object.entries(pays)) creditPayout(k, v);
-      if (!o.left && meta && !meta.closed && meta.hostOnline !== false) { await joinGuest(o.code, { quiet: true }); return; }
-      if (!o.left && meta && !meta.closed && o.chips > 0) { // ホストが消えたまま：前回の卓上チップを自分で戻す
-        player.wallet += o.chips;
-        send({ t: 'toast', text: '前回の卓（部屋 ' + o.code + '）のチップ ' + fmt(o.chips) + ' を手持ちに戻しました', kind: 'gold' });
-        api.send({ t: 'abandon' }).catch(() => {});
+      let rejoin = null;
+      for (const o of rooms) {
+        try {
+          const meta = await on.readRoom(o.code);
+          const api = on.guestApi(o.code);
+          const pays = await api.readPayouts();
+          // 閉じている間に席を外されて精算済み（cashout／left）なら、前回の卓上チップは自分で戻さない（B-02）
+          let settled = false;
+          for (const [k, v] of Object.entries(pays)) {
+            if (creditPayout(o.code, k, v) && v && (v.reason === 'cashout' || v.reason === 'left')) settled = true;
+          }
+          // 卓が続いていれば戻る。ホストが一瞬切れているだけかもしれないので、切れていても戻って60秒のタイマーに任せる（B-15）
+          if (!rejoin && o === player.online && !o.left && meta && !meta.closed) { rejoin = o.code; continue; }
+          // 出た部屋の精算がまだ届いていない（オールインのハンドが続いている等）：部屋が閉じるまで記録を残し、次回また読む（B-11）
+          if (o.left && o.awaiting > 0 && meta && !meta.closed) continue;
+          // ホストが消えたまま、または部屋そのものがもう無い（7日たって消された）：前回の卓上チップを自分で戻す。
+          // 卓が正しく閉じられていた（closed）場合は、精算（payouts）が正しい額なので、ここでは足さない
+          if (!o.left && !settled && (!meta || !meta.closed) && o.chips > 0) {
+            player.wallet += o.chips;
+            send({ t: 'toast', text: '前回の卓（部屋 ' + o.code + '）のチップ ' + fmt(o.chips) + ' を手持ちに戻しました', kind: 'gold' });
+            if (meta) api.send({ t: 'abandon' }).catch(() => {});
+          }
+          if (player.online === o) player.online = null;
+          else player.pendingRooms = (player.pendingRooms || []).filter(r => r !== o);
+        } catch { /* この部屋は次回また試す */ }
       }
-      player.online = null;
       saveNow();
-      sendMe();
-    } catch { /* つながらなければ次回また試す */ }
+      if (rejoin) { await joinGuest(rejoin, { quiet: true }); return; }
+      if (!checkGameOver()) sendMe(); // 後始末が済んだので判定し直す（B-07）
+    } catch { /* つながらなければ次回また試す */ } finally { resuming = false; }
   }
 
   // 参加者のときの依頼：手持ちの出し入れはこの端末で行い、卓の操作はホストへ送る
@@ -472,9 +617,11 @@ export function createLocalServer(onMessage) {
         const amt = Math.round(int(msg.amount) / UNIT) * UNIT;
         if (!st) throw new Error('卓の状態を受け取るまでお待ちください');
         if (st.mySeat >= 0) throw new Error('すでに着席しています');
+        if (guest.pending > 0) throw new Error('席を用意しています。もうしばらくお待ちください'); // B-03
         if (!(amt >= st.minBuyIn && amt <= st.maxBuyIn)) throw new Error('バイインは ' + fmt(st.minBuyIn) + '〜' + fmt(st.maxBuyIn) + ' です');
         if (amt > player.wallet) throw new Error('手持ちが足りません');
         player.wallet -= amt;
+        guest.pending = amt; // 席に反映されるまで卓上に数える（B-04）
         saveNow(); sendMe();
         guest.api.send({ t: 'sit', amount: amt });
         send({ t: 'toast', text: '席を用意しています（空き次第、次のハンドから座ります）', kind: 'gold' });
@@ -491,13 +638,22 @@ export function createLocalServer(onMessage) {
       case 'stand': guest.api.send({ t: 'stand' }); return true;
       case 'action': guest.api.send({ t: 'action', type: String(msg.type), amount: msg.amount }); return true;
       case 'sitBack': guest.api.send({ t: 'sitBack' }); return true;
-      case 'leaveTable': leaveGuest('leave'); return true;
+      case 'leaveTable': // ホストとの接続が切れている間は、精算する相手がいないので自分で戻す（B-09）
+        if (guest.meta && guest.meta.hostOnline === false) hostGone(); else leaveGuest('leave');
+        return true;
       case 'joinTable': viewing = true; sendTable(); return true;
       default: return false; // hello・lobby などは通常の処理へ
     }
   }
 
+  function safeHandle(msg) {
+    try { handle(msg); } catch (e) { send({ t: 'error', text: e.message }); }
+  }
+
   function handle(msg) {
+    // 別のタブで動いているときは使わせない（B-17）。確かめている間に届いた入場は、確かめ終わってから処理する
+    if (lock === 'pending') { if (msg.t === 'hello') pendingHello = msg; return; }
+    if (lock === 'denied') { send({ t: 'gate', error: '別のタブで NOCTURNE を開いています。このタブを閉じてください（もう一方を閉じたあとなら、読み込み直すと使えます）' }); return; }
     if (msg.t !== 'hello' && !player) throw new Error('先に入場してください');
     if (guest && guestHandle(msg)) return;
     switch (msg.t) {
@@ -525,7 +681,7 @@ export function createLocalServer(onMessage) {
         if (checkGameOver()) return;
         if (viewing && (table || guest)) sendTable();
         else send({ t: 'lobby', tables: lobbyList() });
-        if (player.online && !guest) resumeOnline();
+        if ((player.online || (player.pendingRooms || []).length) && !guest) resumeOnline();
         return;
       }
       case 'joinRoom': {
@@ -627,9 +783,7 @@ export function createLocalServer(onMessage) {
   }
 
   return {
-    send(msg) {
-      try { handle(msg); } catch (e) { send({ t: 'error', text: e.message }); }
-    },
+    send(msg) { safeHandle(msg); },
     hasPlayer: () => !!player,
     playerName: () => (player ? player.name : ''),
   };

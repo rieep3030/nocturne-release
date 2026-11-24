@@ -144,7 +144,11 @@ class Table {
     if (!s) return;
     s.disconnected = v;
     this.changed();
-    if (v && this.hand && this.hand.toAct === this.seatOf(pid)) this.promptActor();
+    // 手番の人が切れたら持ち時間を短くする。締め切りを延ばすことはしない（切断を繰り返して卓を止められないように。B-18）
+    if (v && this.hand && this.hand.toAct === this.seatOf(pid)) {
+      const h = this.hand;
+      if (!h.deadline || Date.now() + this.timing.absentMs < h.deadline) this.promptActor();
+    }
     if (!v) this.maybeStart();
   }
 

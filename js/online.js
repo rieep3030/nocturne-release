@@ -49,6 +49,12 @@ export async function createRoom({ name, sb, bb, hostName }) {
   throw new Error('部屋コードを作れませんでした。もう一度お試しください');
 }
 
+// ホストが自分の部屋をまるごと消す（ルールで、消せるのはその部屋のホストだけ）
+export async function deleteRoom(code) {
+  await connect();
+  await fb.remove(roomRef(code));
+}
+
 // 部屋の情報（meta）を一度だけ読む。なければ null
 export async function readRoom(code) {
   await connect();
