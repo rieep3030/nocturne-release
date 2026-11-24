@@ -109,6 +109,39 @@ export function createLocalServer(onMessage) {
 
   const send = msg => queueMicrotask(() => onMessage(msg));
 
+  // B-17（2026-11-24 再検討）：ほかのタブが記録を書き換えたら、このタブは古くなったとみなし、保存も操作もやめる。
+  // 記録には保存のたびに増える通し番号（rev）を付け、保存の前にも確かめる（ロックは使わない＝再読み込みで止まらない）
+  const STALE_MSG = '別のタブで遊んだ記録があります。このタブを読み込み直してください';
+  let stale = false;
+  let myRev = player ? (player.rev || 0) : 0;
+  const goStale = () => {
+    if (stale) return;
+    stale = true;
+    ending = true; // 以後、ゲームオーバーの判定もしない
+    clearTimeout(saveTimer);
+    // 卓とネット対戦を、何も書き込まずに止める（精算も「卓を閉じた」も書かない。新しいタブがすべてを引き継ぐ）
+    if (table) { table.closed = true; table.cancel(table.timer); table.cancel(table.startTimer); table = null; }
+    if (host) {
+      const h = host; host = null;
+      h.offs.forEach(o => o && o());
+      for (const r of h.remotes.values()) { clearTimeout(r.timer); r.offInbox && r.offInbox(); }
+      h.api.detach(); // このタブを閉じたときの「切断中」の予約を取り消す
+    }
+    if (guest) {
+      const g = guest; guest = null;
+      clearTimeout(g.hostTimer);
+      g.offs.forEach(o => o && o());
+      g.api.detach();
+    }
+    viewing = false;
+    send({ t: 'room', code: null });
+    send({ t: 'gate', error: STALE_MSG });
+  };
+  // 入場（hello）を済ませるまでは、ほかのページの書き込み（再読み込みで閉じていく前のページの保存など）は「古い」とせず、記録を読み直す
+  let started = false;
+  const adoptStored = () => { const p = loadPlayer(); if (p) { player = p; myRev = p.rev || 0; } };
+  window.addEventListener('storage', e => { if (e.key !== KEY) return; if (started) goStale(); else adoptStored(); });
+
 
   const mySeat = () => (table && player ? table.seatOf(player.id) : -1);
   const chipsOnTable = () => {
@@ -136,6 +169,15 @@ export function createLocalServer(onMessage) {
 
   // 卓上のチップも保存しておき、次回起動時に手持ちへ戻す（アプリを閉じても失われないように）
   const write = () => {
+    if (stale) return;
+    let stored = null;
+    try { stored = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { /* 読めなければ確かめない */ }
+    if (stored && (stored.id !== player.id || (stored.rev || 0) > myRev)) { // ほかのページが書いた（B-17）
+      if (started) goStale(); else adoptStored();
+      return;
+    }
+    player.rev = myRev + 1;
+    myRev = player.rev;
     if (guest) {
       player.tableStack = 0;
       player.online = { code: guest.code, uid: guest.api.uid, chips: chipsOnTable() };
@@ -709,10 +751,12 @@ export function createLocalServer(onMessage) {
   }
 
   function handle(msg) {
+    if (stale) { send({ t: 'gate', error: STALE_MSG }); return; } // 古くなったタブでは操作を受け付けない（B-17）
     if (msg.t !== 'hello' && !player) throw new Error('先に入場してください');
     if (guest && guestHandle(msg)) return;
     switch (msg.t) {
       case 'hello': {
+        if (!table && !guest) adoptStored(); // 入場の時点の最新の記録を使う（B-17）
         const name = cleanName(msg.name) || (player && player.name);
         if (!name) { send({ t: 'gate', error: 'お名前を入力してください' }); return; }
         if (!player) {
@@ -722,6 +766,7 @@ export function createLocalServer(onMessage) {
           };
         }
         player.name = name;
+        started = true; // ここから先のほかのページの書き込みは「別のタブ」とみなす
         if (player.tableStack > 0 && !table) { // 前回、卓に置いたまま閉じたチップを戻す
           player.wallet += player.tableStack;
           send({ t: 'toast', text: `前回の卓のチップ ${fmt(player.tableStack)} を手持ちに戻しました`, kind: 'gold' });

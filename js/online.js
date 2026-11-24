@@ -109,6 +109,11 @@ export function hostApi(code) {
     async readMembers() { const s = await fb.get(roomRef(code, 'members')); return s.exists() ? s.val() : {}; },
     setMeta(patch) { return fb.update(roomRef(code, 'meta'), patch).catch(() => {}); },
     startPresence() { return presence(`rooms/${code}/meta/hostOnline`, `rooms/${code}/meta/hostLeftAt`); },
+    // このタブが古くなった（別のタブが引き継いだ）：切断時の予約だけを取り消す。部屋には何も書かない（2026-11-24）
+    detach() {
+      fb.onDisconnect(roomRef(code, 'meta/hostOnline')).cancel().catch(() => {});
+      fb.onDisconnect(roomRef(code, 'meta/hostLeftAt')).cancel().catch(() => {});
+    },
     close() {
       fb.onDisconnect(roomRef(code, 'meta/hostOnline')).cancel().catch(() => {});
       return fb.update(roomRef(code, 'meta'), { closed: true, hostOnline: false, closedAt: fb.serverTimestamp() }).catch(() => {});
@@ -149,6 +154,8 @@ export function guestApi(code) {
     // 卓の情報（閉じた・ホストの接続状態）
     watchMeta(cb) { return fb.onValue(roomRef(code, 'meta'), s => cb(s.val())); },
     startPresence() { return presence(`rooms/${code}/members/${uid}/online`); },
+    // このタブが古くなった：切断時の予約だけを取り消す（2026-11-24）
+    detach() { fb.onDisconnect(roomRef(code, `members/${uid}/online`)).cancel().catch(() => {}); },
     leave() { return fb.remove(roomRef(code, `members/${uid}`)).catch(() => {}); },
   };
 }
