@@ -105,6 +105,8 @@ export function hostApi(code) {
     writeState(uid, state) { return fb.set(roomRef(code, `private/${uid}/state`), JSON.stringify(state)).catch(() => {}); },
     // 精算：その人の手持ちに戻すチップを記録する（参加者側が一度だけ受け取る）
     payout(uid, amount, reason) { return fb.push(roomRef(code, `private/${uid}/payouts`), { amount, reason, at: fb.serverTimestamp() }).catch(() => {}); },
+    // 参加者が勝負師を飛ばした：その人の端末で支配人を解放してもらう（B-34、2026-11-25）
+    unlock(uid, botName) { return fb.set(roomRef(code, `private/${uid}/unlock`), { botName: String(botName || '').slice(0, 32), at: fb.serverTimestamp() }).catch(() => {}); },
     // 参加者の一覧を一度だけ読む（前の卓に戻るとき、まだ部屋にいる人を確かめる。2026-11-24）
     async readMembers() { const s = await fb.get(roomRef(code, 'members')); return s.exists() ? s.val() : {}; },
     setMeta(patch) { return fb.update(roomRef(code, 'meta'), patch).catch(() => {}); },
@@ -151,6 +153,8 @@ export function guestApi(code) {
     // 精算（手持ちに戻すチップ）
     watchPayouts(cb) { return fb.onChildAdded(roomRef(code, `private/${uid}/payouts`), s => cb(s.key, s.val())); },
     async readPayouts() { const s = await fb.get(roomRef(code, `private/${uid}/payouts`)); return s.exists() ? s.val() : {}; },
+    // 支配人の解放の知らせ（B-34）
+    watchUnlock(cb) { return fb.onValue(roomRef(code, `private/${uid}/unlock`), s => cb(s.val())); },
     // 卓の情報（閉じた・ホストの接続状態）
     watchMeta(cb) { return fb.onValue(roomRef(code, 'meta'), s => cb(s.val())); },
     startPresence() { return presence(`rooms/${code}/members/${uid}/online`); },

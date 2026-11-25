@@ -1,6 +1,6 @@
 // オフライン用 Service Worker
 // 更新を公開するときは VERSION を変える（変えないと端末に古い版が残る）。
-const VERSION = 'nocturne-mobile-v13';
+const VERSION = 'nocturne-mobile-v14';
 const FONTS = 'nocturne-fonts-v1';
 
 const CORE = [
@@ -37,9 +37,26 @@ for (const [head, n] of Object.entries(SFX)) {
   for (let i = 1; i <= n; i++) CORE.push(`./sfx/fs/${head}-${i}.wav`);
 }
 
+// アイコンのフォント（Material Symbols）。index.html の2つ目の <link> と同じ URL にする（アイコンを足したら両方を変える）。
+// インストール時に CSS とフォントファイルを控えに取り、2回目以降をオフラインで開いてもアイコンが英単語にならないようにする（B-41）
+const ICON_CSS = 'https://fonts.googleapis.com/css2?family=Material+Symbols+Sharp:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&icon_names=add,arrow_back,bolt,chair,check,close,group_add,history,link,login,logout,north,replay,volume_off,volume_up&display=block';
+async function precacheIcons() {
+  const c = await caches.open(FONTS);
+  if (await c.match(ICON_CSS, { ignoreVary: true })) return;
+  const res = await fetch(ICON_CSS, { mode: 'cors' });
+  if (!res.ok) return;
+  const css = await res.clone().text();
+  await c.put(ICON_CSS, res);
+  const urls = [...css.matchAll(/url\((https:\/\/fonts\.gstatic\.com\/[^)]+)\)/g)].map(m => m[1]);
+  await Promise.all(urls.map(u => fetch(u, { mode: 'cors' }).then(r => (r.ok ? c.put(u, r) : null))));
+}
+
 self.addEventListener('install', e => {
   // ブラウザの HTTP キャッシュを通さずに取りにいく（前の版のファイルが新しい版の控えに入らないように。B-23）
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(CORE.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
+  e.waitUntil(Promise.all([
+    caches.open(VERSION).then(c => c.addAll(CORE.map(u => new Request(u, { cache: 'reload' })))),
+    precacheIcons().catch(() => {}), // 取れなくてもインストールは続ける
+  ]).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
@@ -58,7 +75,7 @@ self.addEventListener('fetch', e => {
   // Google Fonts：手元の控えを先に使い、裏で更新する
   if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') {
     e.respondWith(caches.open(FONTS).then(async c => {
-      const hit = await c.match(req);
+      const hit = await c.match(req, { ignoreVary: true }); // Google Fonts の応答の Vary で一致しないことがあるため（B-41）
       const net = fetch(req).then(res => { c.put(req, res.clone()); return res; }).catch(() => hit);
       return hit || net;
     }));

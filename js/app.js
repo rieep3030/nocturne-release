@@ -207,7 +207,7 @@ function renderMe() {
   const t = S.table;
   const seated = t && t.mySeat >= 0;
   $('#b-stand').hidden = !seated;
-  $('#b-rebuy').hidden = !(seated && t.seats[t.mySeat].stack < t.maxBuyIn);
+  $('#b-rebuy').hidden = !(seated && t.seats[t.mySeat].stack + (t.seats[t.mySeat].pendingRebuy || 0) < t.maxBuyIn); // B-30
 }
 
 // ---------------- ロビー ----------------
@@ -360,9 +360,9 @@ function dialog(build) {
 }
 
 function amountPicker(box, min, max, step, init) {
-  const out = el('div', 'amount', fmt(init));
   const r = el('input');
   r.type = 'range'; r.min = min; r.max = max; r.step = step; r.value = init;
+  const out = el('div', 'amount', fmt(r.value)); // 刻みに丸めたあとの、実際に送る額を出す（B-40）
   const ends = el('div', 'range-ends');
   ends.append(el('span', null, fmt(min)), el('span', null, fmt(max)));
   r.oninput = () => { out.textContent = fmt(r.value); };
@@ -404,11 +404,12 @@ function openRebuy() {
   const s = t.seats[t.mySeat];
   dialog((box, close) => {
     box.append(el('p', 'eyebrow', 'Add-on'), el('h3', null, 'チップを追加'));
-    const room = t.maxBuyIn - s.stack;
+    const have = s.stack + (s.pendingRebuy || 0); // 追加待ちの分も含める（B-30）
+    const room = t.maxBuyIn - have;
     const max = Math.min(room, Math.floor(S.me.wallet / 5) * 5);
-    const min = Math.min(max, Math.max(t.sb, t.minBuyIn - s.stack));
-    if (max <= 0 || max < t.sb) { brokeNote(box, Math.max(t.sb, t.minBuyIn - s.stack), close); return; }
-    const get = amountPicker(box, min, max, t.sb, Math.min(max, Math.max(min, t.bb * 100 - s.stack)));
+    const min = Math.min(max, Math.max(t.sb, t.minBuyIn - have));
+    if (max <= 0 || max < t.sb) { brokeNote(box, Math.max(t.sb, t.minBuyIn - have), close); return; }
+    const get = amountPicker(box, min, max, t.sb, Math.min(max, Math.max(min, t.bb * 100 - have)));
     const acts = el('div', 'dlg-actions');
     const c = btnIn(el('button', 'btn btn-ghost'), 'close', 'CANCEL');
     c.onclick = close;
@@ -443,7 +444,8 @@ function openAddBot(seat) {
 // ゲームオーバー：今回の成績と自己ベストを出し、初期の手持ちからやり直す
 function showGameOver(m) {
   const { run, best, records } = m;
-  const mins = Math.max(1, Math.round((run.ended - run.started) / 60000));
+  // 卓に座っていた時間（B-28）。それを記録する前の版から続く回は、開始からの経過時間
+  const mins = Math.max(1, Math.round((run.playMs != null ? run.playMs : run.ended - run.started) / 60000));
   dialog((box, close) => {
     box.classList.add('invite', 'gameover');
     const cr = el('div', 'crest');
@@ -625,7 +627,8 @@ function renderSeats(t) {
     div.dataset.d = disp(i, hero);
     if (!s) {
       div.classList.add('empty');
-      if (t.mySeat < 0) {
+      // 参加者は席を選べない（ホストが空いた席に座らせる）ので、空席の SIT は出さず、下の SIT だけにする（B-33）
+      if (t.mySeat < 0 && !(S.room && S.room.role === 'guest')) {
         const b = btnIn(el('button', 'btn'), 'chair', 'SIT');
         b.onclick = () => openBuyIn(i);
         div.append(b);
@@ -900,7 +903,9 @@ function renderLog(t) {
 function frame() {
   const t = S.table;
   if (t && S.screen === 'room' && t.toAct >= 0 && t.deadlineIn > 0) {
-    const rem = Math.max(0, t.deadlineIn - (performance.now() - S.recvAt));
+    // 参加者は、通信の遅れの分（1.5秒）だけ短く見せる。表示が残っていてもホストでは時間切れ、を防ぐ（B-44）
+    const lag = S.room && S.room.role === 'guest' ? 1500 : 0;
+    const rem = Math.max(0, t.deadlineIn - lag - (performance.now() - S.recvAt));
     const bar = $(`#seats .seat[data-i="${t.toAct}"] .ptimer i`);
     if (bar) {
       bar.style.width = (100 * rem) / t.actionMs + '%';

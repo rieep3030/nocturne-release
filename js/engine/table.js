@@ -201,7 +201,7 @@ class Table {
       if (!s) return;
       Object.assign(s, {
         inHand: set.has(i), hole: [], folded: false, allIn: false, bet: 0, total: 0,
-        acted: false, raiseLocked: false, lastAction: null, startStack: s.stack,
+        acted: false, actedAt: 0, raiseLocked: false, lastAction: null, startStack: s.stack,
         pf: null, postAggr: 0, vpipFlag: false, pfrFlag: false,
       });
     });
@@ -213,12 +213,13 @@ class Table {
     const deck = shuffledDeck();
     this.hand = {
       no: this.handNo, street: 'preflop', deck, board: [], currentBet: 0, minRaise: this.bb,
-      toAct: -1, sbI, bbI, seq: 0, over: false, revealAll: false, results: null, deadline: 0,
+      toAct: -1, sbI, bbI, seq: 0, over: false, revealAll: false, results: null, deadline: 0, promptFor: -1,
     };
     const h = this.hand;
     this.post(sbI, this.sb, 'SB');
     this.post(bbI, this.bb, 'BB');
-    h.currentBet = Math.max(this.seats[sbI].bet, this.seats[bbI].bet);
+    // BB がショートでオールインしても、コールに必要な額は BB の額（一般的なルール。B-25、2026-11-25 決定）
+    h.currentBet = Math.max(this.seats[sbI].bet, this.seats[bbI].bet, this.bb);
     for (let round = 0; round < 2; round++) {
       let i = sbI;
       for (let k = 0; k < ready.length; k++) {
@@ -280,8 +281,12 @@ class Table {
       const delay = this.timing.botDelay != null ? this.timing.botDelay : L.think[0] + Math.random() * (L.think[1] - L.think[0]);
       h.deadline = 0;
       this.timer = this.later(() => this.botAct(i, seq), delay);
+      h.promptFor = -1;
     } else {
-      const ms = (s.disconnected || s.sittingOut || s.leaving) ? this.timing.absentMs : this.timing.actionMs;
+      const full = (s.disconnected || s.sittingOut || s.leaving) ? this.timing.absentMs : this.timing.actionMs;
+      // 同じ人の手番のまま張り直すとき（ほかの人が席を立った等）は、残りの持ち時間を引き継ぐ（B-27）
+      const ms = h.promptFor === i && h.deadline > 0 ? Math.min(full, Math.max(0, h.deadline - Date.now())) : full;
+      h.promptFor = i;
       h.deadline = Date.now() + ms;
       this.timer = this.later(() => this.timeoutAct(i, seq), ms);
     }
@@ -403,8 +408,9 @@ class Table {
           h.minRaise = size;
           this.seats.forEach((o, j) => { if (o && j !== i && this.canAct(j)) { o.acted = false; o.raiseLocked = false; } });
         } else {
-          // 足りないオールイン：既にアクションした人は再レイズ不可
-          this.seats.forEach((o, j) => { if (o && j !== i && this.canAct(j) && o.acted) o.raiseLocked = true; });
+          // 足りないオールイン：既にアクションした人は再レイズ不可。ただし、その人が最後にアクションしてからの
+          // 増額の合計がフルレイズ以上になったら、再レイズできる（一般的なルール。B-26、2026-11-25 決定）
+          this.seats.forEach((o, j) => { if (o && j !== i && this.canAct(j) && o.acted) o.raiseLocked = to - (o.actedAt || 0) < h.minRaise; });
         }
         h.currentBet = to;
         s.lastAction = s.allIn ? 'オールイン' : (wasBet ? 'ベット' : 'レイズ');
@@ -417,7 +423,9 @@ class Table {
         throw new Error('不明なアクションです');
     }
     s.acted = true;
+    s.actedAt = h.currentBet; // このときの賭け額（B-26）
     h.seq++;
+    h.promptFor = -1; // 次の手番は持ち時間を最初から（B-27）
     h.toAct = this.nextFrom(i, j => this.needsToAct(j));
     this.progress();
   }
@@ -432,12 +440,13 @@ class Table {
     this.cancel(this.timer);
     this.seats.forEach(s => {
       if (!s) return;
-      s.bet = 0; s.acted = false; s.raiseLocked = false;
+      s.bet = 0; s.acted = false; s.actedAt = 0; s.raiseLocked = false;
       if (s.inHand && !s.folded && !s.allIn) s.lastAction = null;
     });
     h.currentBet = 0;
     h.minRaise = this.bb;
     h.toAct = -1;
+    h.promptFor = -1;
     if (h.street === 'river') return this.showdown();
     const actors = this.seats.map((s, i) => i).filter(i => this.canAct(i));
     const runout = actors.length <= 1;

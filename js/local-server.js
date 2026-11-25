@@ -4,7 +4,7 @@
 // ネット対戦（2026-11-20）：卓を開いた端末（ホスト）がこの中で卓を進め、友達の端末（参加者）は Firebase 経由で
 // 操作を送り、自分向けの卓の状態を受け取る。チップは各自の端末の手持ちから出し入れする（精算は js/online.js 参照）。
 import { Table, N as SEATS } from './engine/table.js';
-import { LEVELS } from './engine/bots.js';
+import { LEVELS, decide } from './engine/bots.js';
 
 export const CONFIG = {
   startingWallet: 5000,
@@ -52,7 +52,8 @@ const GAMEOVER_BELOW = minStake.bb * CONFIG.buyInMinBB;
 const cleanName = s => String(s || '').replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(0, 16);
 const int = v => (Number.isFinite(Number(v)) ? Math.floor(Number(v)) : NaN);
 
-const newRun = (peak = CONFIG.startingWallet) => ({ hands: 0, won: 0, peak, bestWin: 0, started: Date.now() });
+// playMs：卓に座っていた時間の合計（ゲームオーバー画面の「プレイ時間」。B-28、2026-11-25 決定）
+const newRun = (peak = CONFIG.startingWallet) => ({ hands: 0, won: 0, peak, bestWin: 0, started: Date.now(), playMs: 0 });
 const newBest = () => ({ peak: 0, hands: 0, bestWin: 0, runs: 0 });
 
 function loadPlayer() {
@@ -78,17 +79,22 @@ function makeDecider() {
   try {
     const worker = new Worker(new URL('./engine/bot-worker.js', import.meta.url), { type: 'module' });
     let seq = 0;
+    let broken = false;
     const waiting = new Map();
+    // Worker で判断できないときは、画面のスレッドで判断する（B-39）
+    const decideHere = (ctx, res, rej) => { try { res(decide(ctx)); } catch (e) { rej(e); } };
     worker.onmessage = e => {
       const w = waiting.get(e.data.id);
       if (!w) return;
       waiting.delete(e.data.id);
       e.data.d ? w.res(e.data.d) : w.rej(new Error('decide failed'));
     };
-    worker.onerror = () => { for (const w of waiting.values()) w.rej(new Error('worker error')); waiting.clear(); };
+    // 読み込みに失敗したなど：以後は返事が来ないので、待っている分も含めて画面のスレッドで判断する（B-39）
+    worker.onerror = () => { broken = true; for (const w of waiting.values()) decideHere(w.ctx, w.res, w.rej); waiting.clear(); };
     return ctx => new Promise((res, rej) => {
+      if (broken) { decideHere(ctx, res, rej); return; }
       const id = ++seq;
-      waiting.set(id, { res, rej });
+      waiting.set(id, { res, rej, ctx });
       worker.postMessage({ id, ctx });
     });
   } catch {
@@ -183,7 +189,16 @@ export function createLocalServer(onMessage) {
       player.online = { code: guest.code, uid: guest.api.uid, chips: chipsOnTable() };
     } else player.tableStack = chipsOnTable();
     if (host && table) player.hostTable = hostSnapshot(); // 開き直したときに同じ卓へ戻るため（2026-11-24）
+    tickPlay();
     try { localStorage.setItem(KEY, JSON.stringify(player)); } catch { /* 保存できない環境 */ }
+  };
+  // 卓に座っていた時間を、保存のたびに積み上げる。保存の間が空いたとき（閉じていた等）は1分までしか数えない（B-28）
+  let playTick = 0;
+  const tickPlay = () => {
+    const now = Date.now();
+    const seated = guest ? !!(guest.state && guest.state.mySeat >= 0) : mySeat() >= 0;
+    if (playTick && seated && player.run) player.run.playMs = (player.run.playMs || 0) + Math.min(now - playTick, 60000);
+    playTick = now;
   };
   // ホストの卓の状態。ハンドの途中なら、そのハンドは無効にして拠出をチップに戻した額で残す（2026-11-24 決定）
   const hostSnapshot = () => ({
@@ -227,6 +242,10 @@ export function createLocalServer(onMessage) {
   function countGuestHand(st) {
     if (!st || !st.results || st.handNo === countedHand) return;
     countedHand = st.handNo;
+    // 入り直して同じハンドの結果をもう一度受け取っても、数えない（B-43）
+    const lc = player.lastCounted;
+    if (guest && lc && lc.code === guest.code && lc.handNo === st.handNo) return;
+    if (guest) player.lastCounted = { code: guest.code, handNo: st.handNo };
     const me = st.mySeat;
     if (me < 0 || !st.seats[me] || !st.seats[me].inHand) return;
     player.run.hands++;
@@ -298,7 +317,7 @@ export function createLocalServer(onMessage) {
           countHand();
           player.run.peak = Math.max(player.run.peak, total());
           if (host) hostSync();
-          if (!checkGameOver()) { sendTable(); save(); }
+          if (!checkGameOver()) { sendTable(); save(); if (!viewing) sendMe(); } // ロビーの「卓上」も新しくする（B-29）
         },
         onCashOut: (pid, amount) => {
           if (host && String(pid).startsWith('fb:')) { host.api.payout(pid.slice(3), amount, 'cashout'); return; }
@@ -308,6 +327,8 @@ export function createLocalServer(onMessage) {
           setTimeout(() => { if (!checkGameOver()) sendMe(); });
         },
         onUnlock: (pid, botName) => {
+          // 参加者が勝負師を飛ばした：参加者の端末で解放する（B-34、2026-11-25 決定）
+          if (host && String(pid).startsWith('fb:')) { host.api.unlock(pid.slice(3), botName); return; }
           if (pid !== player.id || player.unlocked) return;
           player.unlocked = true;
           save();
@@ -522,16 +543,18 @@ export function createLocalServer(onMessage) {
   // 自分が作った部屋のうち、作ってから7日以上たち、閉じている（またはホストがいない・もう無い）ものを消す
   async function cleanupOldRooms(on, current) {
     const now = Date.now();
-    const keep = [];
-    for (const x of player.hostedRooms || []) {
-      if (x.code === current || now - x.at < ROOM_KEEP_MS) { keep.push(x); continue; }
+    const removed = new Set();
+    for (const x of [...(player.hostedRooms || [])]) {
+      if (x.code === current || now - x.at < ROOM_KEEP_MS) continue;
       try {
         const meta = await on.readRoom(x.code);
-        if (meta && !meta.closed && meta.hostOnline !== false) { keep.push(x); continue; } // まだ使われている
+        if (meta && !meta.closed && meta.hostOnline !== false) continue; // まだ使われている
         if (meta) await on.deleteRoom(x.code);
-      } catch { keep.push(x); } // 消せなかったものは次回また試す
+        removed.add(x.code);
+      } catch { /* 消せなかったものは次回また試す */ }
     }
-    player.hostedRooms = keep;
+    // 消した部屋だけを記録から除く（待っている間に作った部屋の記録を消さない。B-36）
+    player.hostedRooms = (player.hostedRooms || []).filter(x => !removed.has(x.code));
     saveNow();
   }
 
@@ -583,8 +606,15 @@ export function createLocalServer(onMessage) {
   }
 
   async function joinGuest(code, { quiet = false } = {}) {
+    const before = table;
     const on = await loadOnline();
     const { meta } = await on.joinRoom(code, player.name);
+    // 参加の通信を待っている間に別の卓が開かれた：その卓を閉じずに、参加を取りやめる（B-24）
+    if (table && table !== before) {
+      on.guestApi(code).leave();
+      send({ t: 'toast', text: '別の卓を開いたため、部屋 ' + code + ' への参加を取りやめました', kind: 'gold' });
+      return;
+    }
     // すでに部屋にいる：同じ部屋なら何もしない。別の部屋なら先に片付ける（B-12）
     if (guest) {
       if (guest.code === code) return;
@@ -611,6 +641,13 @@ export function createLocalServer(onMessage) {
     saveNow();
     guest.offs.push(api.startPresence());
     guest.offs.push(api.watchPayouts((key, v) => creditPayout(code, key, v)));
+    guest.offs.push(api.watchUnlock(v => { // ホストの卓で勝負師を飛ばした（B-34）
+      if (guest !== me || !v || player.unlocked) return;
+      player.unlocked = true;
+      saveNow();
+      send({ t: 'unlocked', botName: String(v.botName || '') });
+      sendMe();
+    }));
     guest.offs.push(api.watchState(st => {
       if (guest !== me) return; // 前の部屋の購読が残っていても、今の部屋の状態を上書きしない（B-12）
       guest.state = st;
@@ -655,7 +692,8 @@ export function createLocalServer(onMessage) {
     const g = guest; guest = null;
     clearTimeout(g.hostTimer);
     if (reason !== 'hostGone' && reason !== 'closed') g.api.send({ t: 'leave' }).catch(() => {});
-    setTimeout(() => { g.offs.forEach(o => o && o()); g.api.leave(); }, delay);
+    // 後片付け。その間に同じ部屋へ入り直していたら、参加者一覧からは消さない（B-35）
+    setTimeout(() => { g.offs.forEach(o => o && o()); if (!(guest && guest.code === g.code)) g.api.leave(); }, delay);
     if (reason === 'hostGone' || reason === 'closed') player.online = null;
     // 次回の起動では精算だけ受け取り、部屋には戻らない。届くまでは awaiting を手持ちの合計に数える
     else if (player.online) player.online = { code: player.online.code, uid: player.online.uid, chips: 0, left: true, awaiting };

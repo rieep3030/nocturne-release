@@ -178,6 +178,12 @@ export class TableStage {
     r.shadowMap.enabled = true;
     r.shadowMap.type = THREE.PCFSoftShadowMap;
     const env = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), 0.04).texture;
+    // WebGL が一度失われて戻ったとき、環境マップ（描画で作るテクスチャ）は自動では戻らないので作り直す（B-42）
+    r.domElement.addEventListener('webglcontextrestored', () => {
+      const env2 = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), 0.04).texture;
+      if (this.ui) this.ui.environment = env2;
+      if (this.s3) this.s3.environment = env2;
+    });
 
     // 入口・ロビー用（画面座標の正投影）
     this.ui = new THREE.Scene();
@@ -357,7 +363,7 @@ export class TableStage {
     // 紋章
     const size = H * 0.05;
     const ey = H * 0.2;
-    ctx.font = `500 ${size}px "Cormorant Garamond", serif`;
+    ctx.font = `500 ${size}px "Oxanium", sans-serif`; // 読み込んでいるフォントで描く（B-32）
     if ('letterSpacing' in ctx) ctx.letterSpacing = `${size * 0.55}px`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -535,6 +541,7 @@ export class TableStage {
     const list = p.chips.splice(0);
     p.amount = 0;
     p.gen++;
+    p.pending = 0; // 前の世代の飛行中の分は数えない（B-31）
     list.forEach((c, k) => {
       this.world.removeBody(c.body);
       const i = this.chips.indexOf(c);
@@ -553,6 +560,7 @@ export class TableStage {
     for (const c of p.chips.splice(0)) this.removeChip(c);
     p.amount = 0;
     p.gen++;
+    p.pending = 0; // B-31
   }
 
   // 重ならない位置（六角配置を段ごとに積む）に置いて静かに落とす
@@ -573,8 +581,8 @@ export class TableStage {
     chipValues(delta, MAX_PER_PILE - p.chips.length - (p.pending || 0)).forEach((v, k) => {
       p.pending = (p.pending || 0) + 1;
       this.schedule(k * 55, () => {
+        if (p.gen !== gen) return; // 投げ終わる前に回収された（数は世代が変わったときに 0 に戻してある。B-31）
         p.pending--;
-        if (p.gen !== gen) return; // 投げ終わる前に回収された
         if (k === 0) this.onSound?.('handle');
         const s = this.jitter(from, 0.2).setY(0.9);
         // 着地後に少し転がるので、目標の手前を狙う
@@ -593,7 +601,7 @@ export class TableStage {
     chipValues(amount, MAX_PER_PILE - p.chips.length - (p.pending || 0)).forEach((v, k) => {
       p.pending = (p.pending || 0) + 1;
       this.schedule(delay + k * 70, () => {
-        if (p.gen !== gen) { p.pending--; return; }
+        if (p.gen !== gen) return; // B-31
         this.pulse(1);
         const mesh = this.protos.get(v).mesh.clone();
         mesh.position.copy(this.tLines.position);
@@ -605,8 +613,8 @@ export class TableStage {
           kind: 'emit', mesh, from: this.tLines.position.clone(), to: t, t0: performance.now(), dur: 440,
           done: () => {
             this.s3.remove(mesh);
+            if (p.gen !== gen) return; // 飛んでいる間に片付けられた（B-31）
             p.pending--;
-            if (p.gen !== gen) return;
             const c = this.makeChip(v, t, { vel: new THREE.Vector3(0, -2.5, 0), spin: 5, ghostMs: 120 });
             c.mesh.quaternion.copy(mesh.quaternion);
             c.body.quaternion.set(mesh.quaternion.x, mesh.quaternion.y, mesh.quaternion.z, mesh.quaternion.w);
