@@ -10,12 +10,12 @@ const fmt = n => Number(n).toLocaleString('en-US');
 
 class Table {
   /**
-   * opts: { id, name, sb, bb, hostId, config, hooks, timing, allowBotsOnly }
+   * opts: { id, sb, bb, hostId, config, hooks, timing, allowBotsOnly, hold }
    * hooks: onChange(table), onCashOut(playerId, amount), onUnlock(playerId), onBotRebuy(amount)
+   * hold：true なら begin() を呼ぶまで配らない（マルチプレイの開始待ち。2026-11-25 決定）
    */
   constructor(opts) {
     this.id = opts.id;
-    this.name = opts.name;
     this.sb = opts.sb;
     this.bb = opts.bb;
     this.hostId = opts.hostId;
@@ -26,6 +26,7 @@ class Table {
       actionMs: this.cfg.actionSeconds * 1000, absentMs: 1500, botDelay: null,
     }, opts.timing || {});
     this.allowBotsOnly = !!opts.allowBotsOnly;
+    this.hold = !!opts.hold;
     this.decider = opts.decider || null;
     this.seats = new Array(N).fill(null);
     this.button = -1;
@@ -165,8 +166,16 @@ class Table {
   cancel(h) { if (h) clearTimeout(h.t); }
 
   // ---------- 進行 ----------
+  // 開始待ちを解いて、配り始める
+  begin() {
+    if (!this.hold) return;
+    this.hold = false;
+    this.changed();
+    this.maybeStart();
+  }
+
   maybeStart() {
-    if (this.closed || this.hand || this.startTimer) return;
+    if (this.closed || this.hold || this.hand || this.startTimer) return;
     if (this.readySeats().length < 2) return;
     if (!this.allowBotsOnly && !this.seats.some(s => s && !s.isBot && !s.disconnected && !s.sittingOut && s.stack > 0)) return;
     this.startTimer = this.later(() => { this.startTimer = null; this.startHand(); }, this.timing.nextHand);
@@ -191,7 +200,7 @@ class Table {
   liveIdx() { const r = []; this.seats.forEach((s, i) => { if (s && s.inHand && !s.folded) r.push(i); }); return r; }
 
   startHand() {
-    if (this.closed || this.hand) return;
+    if (this.closed || this.hold || this.hand) return;
     const ready = this.readySeats();
     if (ready.length < 2) return;
     if (!this.allowBotsOnly && !ready.some(i => !this.seats[i].isBot)) return;
@@ -636,7 +645,7 @@ class Table {
 
   summary() {
     return {
-      id: this.id, name: this.name, sb: this.sb, bb: this.bb, hostId: this.hostId,
+      id: this.id, sb: this.sb, bb: this.bb, hostId: this.hostId, waiting: this.hold,
       seats: this.seats.map(s => (s ? { isBot: s.isBot, level: s.level, name: s.name } : null)),
     };
   }
@@ -678,7 +687,7 @@ class Table {
       myHand = handName(evaluate([...this.seats[me].hole, ...h.board]));
     }
     return {
-      id: this.id, name: this.name, sb: this.sb, bb: this.bb, hostId: this.hostId,
+      id: this.id, sb: this.sb, bb: this.bb, hostId: this.hostId, waiting: this.hold,
       minBuyIn: this.minBuyIn, maxBuyIn: this.maxBuyIn,
       handNo: h ? h.no : this.handNo, inHand: !!h, over: h ? h.over : true,
       street: h ? h.street : null, button: this.button,

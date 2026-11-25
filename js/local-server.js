@@ -202,7 +202,7 @@ export function createLocalServer(onMessage) {
   };
   // ホストの卓の状態。ハンドの途中なら、そのハンドは無効にして拠出をチップに戻した額で残す（2026-11-24 決定）
   const hostSnapshot = () => ({
-    code: host.code, stakeId: host.stakeId, name: table.name, at: Date.now(), button: table.button, handNo: table.handNo,
+    code: host.code, stakeId: host.stakeId, started: !table.hold, fillBots: host.fillBots, at: Date.now(), button: table.button, handNo: table.handNo,
     seats: table.seats.map(s => (s ? {
       id: s.id, name: s.name, isBot: !!s.isBot, level: s.level || null, leaving: !!s.leaving,
       stack: s.stack + s.pendingRebuy + (table.hand && !table.hand.over && s.inHand ? s.total : 0),
@@ -229,7 +229,7 @@ export function createLocalServer(onMessage) {
   });
   const sendMe = () => send({ t: 'me', me: meOf() });
   const lobbyList = () => {
-    if (guest && guest.state) return [{ id: 'remote', name: guest.state.name, sb: guest.state.sb, bb: guest.state.bb, hostName: guest.meta?.hostName || '', room: guest.code, seats: guest.state.seats.map(x => (x ? { isBot: x.isBot } : null)) }];
+    if (guest && guest.state) return [{ id: 'remote', sb: guest.state.sb, bb: guest.state.bb, hostName: guest.meta?.hostName || '', room: guest.code, seats: guest.state.seats.map(x => (x ? { isBot: x.isBot } : null)) }];
     return table ? [{ ...table.summary(), hostName: player.name, room: host?.code || null }] : [];
   };
   const sendTable = () => {
@@ -304,12 +304,22 @@ export function createLocalServer(onMessage) {
     return true;
   }
 
-  function createTable(name, stake) {
+  // 卓のレートに合わせた CPU の顔ぶれ（6人分）。支配人は解放後、100/200 で 1/3 の確率で勝負師と入れ替わる
+  function botLevels(stake) {
+    const levels = shuffle([...(LINEUP[stake.id] || LINEUP.low)]);
+    if (stake.id === 'high' && player.unlocked && Math.random() < PROPRIETOR_CHANCE) {
+      levels[levels.indexOf('shark')] = 'proprietor';
+    }
+    return levels;
+  }
+
+  // hold：マルチプレイの開始待ち（ホストが START を押すまで配らない。2026-11-25 決定）
+  function createTable(stake, { hold = false } = {}) {
     if (table) { ending = true; table.close(); ending = false; closeHost(); } // 前の卓は閉じて、卓上のチップを手持ちに戻す
     if (guest) leaveGuest('newTable');
     countedHand = -1;
     table = new Table({
-      id: 'local', name, sb: stake.sb, bb: stake.bb, hostId: player.id, config: CONFIG, decider,
+      id: 'local', sb: stake.sb, bb: stake.bb, hostId: player.id, config: CONFIG, decider, hold,
       hooks: {
         // チップが尽きた CPU は、同じレートの顔ぶれから選び直した CPU に入れ替える
         replaceBot: s => (s.level === 'proprietor' ? 'proprietor' : pick(LINEUP[stake.id] || LINEUP.low)),
@@ -352,7 +362,8 @@ export function createLocalServer(onMessage) {
       if (!host || !table) return;
       processSitQueue();
       // ハンドの合間に席待ちの人がいなければ、空席（席0＝ホストの席を除く）を CPU で埋める（仕様「空席は CPU」。B-20）
-      if (!table.hand && !host.queue.length) {
+      // 開始前は埋めない。開始時に「埋めない」を選んだ卓も埋めない（2026-11-25 決定）
+      if (!table.hand && !host.queue.length && !table.hold && host.fillBots) {
         for (let k = 1; k < SEATS; k++) if (!table.seats[k]) table.addBot(k, pick(LINEUP[host.stakeId] || LINEUP.low));
       }
       for (const [uid, r] of host.remotes) host.api.writeState(uid, { ...table.publicState(r.pid), room: host.code });
@@ -445,7 +456,7 @@ export function createLocalServer(onMessage) {
   async function startHost(stake) {
     const tb = table;
     const on = await loadOnline();
-    const code = await on.createRoom({ name: tb.name, sb: stake.sb, bb: stake.bb, hostName: player.name });
+    const code = await on.createRoom({ sb: stake.sb, bb: stake.bb, hostName: player.name });
     player.hostedRooms = [...(player.hostedRooms || []).filter(x => x.code !== code), { code, at: Date.now() }];
     saveNow();
     cleanupOldRooms(on, code).catch(() => {}); // 失敗しても次の機会にまた試す
@@ -457,8 +468,8 @@ export function createLocalServer(onMessage) {
   }
 
   // 部屋のホストとして、接続状態の見張り・参加者の一覧・受付箱の受け取りを始める（新しい部屋でも、戻った部屋でも）
-  function attachHost(api, code, stake, queue = []) {
-    host = { code, api, remotes: new Map(), queue, offs: [], stakeId: stake.id };
+  function attachHost(api, code, stake, queue = [], fillBots = true) {
+    host = { code, api, remotes: new Map(), queue, offs: [], stakeId: stake.id, fillBots };
     host.offs.push(api.startPresence());
     host.offs.push(api.watchMembers((kind, uid, v) => {
       if (!host) return;
@@ -494,7 +505,7 @@ export function createLocalServer(onMessage) {
       if (player.hostTable !== snap) return;
       if (!meta || meta.closed) { delete player.hostTable; saveNow(); return; } // もう戻れない
       if (table || guest) return;
-      send({ t: 'hostResume', code: snap.code, name: snap.name });
+      send({ t: 'hostResume', code: snap.code });
     } catch { /* 読めなければ今回は聞かない（次の起動でまた聞く） */ }
   }
 
@@ -510,7 +521,7 @@ export function createLocalServer(onMessage) {
     const mine = snap.seats.find(s => s && s.id === player.id && !s.leaving);
     const myAmt = mine ? mine.stack : 0;
     if (myAmt > player.wallet) throw new Error('手持ちが足りません');
-    const tb = createTable(snap.name, stake);
+    const tb = createTable(stake, { hold: snap.started === false }); // 開始前の部屋なら開始待ちのまま戻す
     tb.button = snap.button;
     tb.handNo = snap.handNo || 0;
     // 自分の席を先に戻す（CPU を座らせる途中でゲームオーバーの判定が走っても、手持ち＋卓上が正しくなるように）
@@ -531,7 +542,7 @@ export function createLocalServer(onMessage) {
       if (!members[uid] || !(s.stack > 0)) return;
       tb.sit(i, { id: s.id, name: s.name }, s.stack);
     });
-    attachHost(api, snap.code, stake, (snap.queue || []).filter(q => members[q.uid]));
+    attachHost(api, snap.code, stake, (snap.queue || []).filter(q => members[q.uid]), snap.fillBots !== false);
     viewing = true;
     send({ t: 'toast', text: '前の卓（部屋 ' + snap.code + '）に戻りました', kind: 'gold' });
     send({ t: 'created', tableId: tb.id });
@@ -843,18 +854,35 @@ export function createLocalServer(onMessage) {
       case 'createTable': {
         const stake = CONFIG.stakes.find(s => s.id === msg.stake);
         if (!stake) throw new Error('ステークスが不正です');
-        // CPU は自動で満席にする（席 0 はあなた）
-        const levels = shuffle([...(LINEUP[stake.id] || LINEUP.low)]);
-        if (stake.id === 'high' && player.unlocked && Math.random() < PROPRIETOR_CHANCE) {
-          levels[levels.indexOf('shark')] = 'proprietor';
-        }
-        const tb = createTable(cleanName(msg.name) || 'Salon', stake);
-        levels.forEach((level, k) => tb.addBot(k + 1, level));
+        // シングル：CPU は自動で満席にする（席 0 はあなた）。マルチ：CPU は座らせず、ホストの START まで待つ（2026-11-25 決定）
+        const multi = !!msg.online;
+        const tb = createTable(stake, { hold: multi });
+        if (!multi) botLevels(stake).forEach((level, k) => tb.addBot(k + 1, level));
         viewing = true;
         send({ t: 'created', tableId: tb.id });
         sendTable();
         sendMe();
-        if (msg.online) startHost(stake).catch(e => send({ t: 'error', text: 'ネット対戦の部屋を作れませんでした：' + (e.message || e) }));
+        if (multi) {
+          startHost(stake).catch(e => {
+            // 部屋を作れなかった：始められない卓を残さないよう閉じて、卓上のチップを手持ちに戻す
+            if (table === tb && !host) { ending = true; tb.close(); ending = false; table = null; viewing = false; send({ t: 'lobby', tables: lobbyList() }); sendMe(); }
+            send({ t: 'error', text: 'ネット対戦の部屋を作れませんでした：' + (e.message || e) });
+          });
+        }
+        return;
+      }
+      case 'startGame': { // マルチプレイの開始（ホストだけ）。座った人（ホストを含む）が2人以上で始められる
+        if (!host || !table || !table.hold) throw new Error('開始できる卓がありません');
+        const humans = table.seats.filter(s => s && !s.isBot && !s.leaving && s.stack > 0).length;
+        if (humans < 2) throw new Error('2人以上が座ると開始できます');
+        host.fillBots = msg.fillBots !== false;
+        if (host.fillBots) {
+          const levels = botLevels(CONFIG.stakes.find(s => s.id === host.stakeId) || { id: host.stakeId });
+          for (let k = 1; k < SEATS; k++) if (!table.seats[k] && levels.length) table.addBot(k, levels.shift());
+        }
+        table.addLog(host.fillBots ? 'ゲーム開始（空席は CPU）' : 'ゲーム開始');
+        table.begin();
+        saveNow();
         return;
       }
       case 'joinTable':

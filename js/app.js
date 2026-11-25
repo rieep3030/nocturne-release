@@ -111,6 +111,7 @@ function onMsg(m) {
       // ネット対戦の部屋（ホスト／参加者）。code が null なら部屋を出た
       S.room = m.code ? { code: m.code, role: m.role } : null;
       renderRoomBadge();
+      $('#r-name').textContent = tableLabel(S.room && S.room.code);
       if (S.table) renderActions(S.table);
       break;
     case 'kicked':
@@ -222,7 +223,7 @@ function renderLobby() {
     const li = el('li', 'trow');
     li.append(el('span', 'tnum', ROMAN[k] || String(k + 1)));
     const nm = el('div', 'tname');
-    nm.append(el('strong', null, t.name), el('small', null, t.hostName ? `主催 ${t.hostName}` : ''));
+    nm.append(el('strong', null, tableLabel(t.room)), el('small', null, t.hostName ? `主催 ${t.hostName}` : '')); // 卓の名前は廃止（2026-11-25）
     li.append(nm);
     li.append(el('span', 'tstakes', `${fmt(t.sb)} / ${fmt(t.bb)}`));
     const seats = el('span', 'tseats');
@@ -236,15 +237,15 @@ function renderLobby() {
   });
 }
 
-function openCreate() {
+// 一覧と卓の上部に出す名前：シングルは SOLO、マルチは部屋コード（2026-11-25 決定）
+const tableLabel = code => (code ? 'ROOM ' + code : 'SOLO');
+
+// mode：'single'（CPU 戦。すぐ始まる）／'multi'（部屋を作る。ホストが START を押すまで始まらない）
+function openCreate(mode) {
+  const multi = mode === 'multi';
   dialog((box, close) => {
-    box.append(el('p', 'eyebrow', 'New Table'), el('h3', null, '卓を開く'));
+    box.append(el('p', 'eyebrow', multi ? 'Multi Play' : 'Single Play'), el('h3', null, multi ? '部屋を作る' : 'ひとりで遊ぶ'));
     const form = el('form', 'form-grid');
-    const nameF = el('label', 'field');
-    const nameI = el('input');
-    nameI.maxLength = 16;
-    nameI.value = ['Salon Noir', 'Velours', 'Minuit', 'Le Cercle', 'Opaline'][Math.floor(Math.random() * 5)];
-    nameF.append(el('span', null, '卓の名前'), nameI);
     const stakeF = el('div', 'field');
     stakeF.append(el('span', null, 'ステークス（SB / BB）'));
     const seg = el('div', 'seg');
@@ -256,14 +257,9 @@ function openCreate() {
       seg.append(lb);
     });
     stakeF.append(seg);
-    // CPU は卓のレートに応じて自動で座る（席は常に満席）
-    const note = el('p', 'note', 'CPU は卓のレートに合わせて自動で座ります。高いレートほど手強い相手が増えます。');
-    // ネット対戦：部屋コードを作って友達を招く（友達が座ると CPU と入れ替わる）
-    const onF = el('label', 'online-opt');
-    const onI = el('input');
-    onI.type = 'checkbox';
-    onI.disabled = !isOnlineReady();
-    onF.append(onI, icon('group_add'), el('span', null, isOnlineReady() ? '友達を招く（ネット対戦の部屋にする）' : '友達を招く（ネット対戦は準備中です）'));
+    const note = el('p', 'note', multi
+      ? '部屋コードを友達に送って招きます。2人以上が座ったら START で始めます。空席を CPU で埋めるかは、始めるときに選べます。'
+      : 'CPU は卓のレートに合わせて自動で座ります。高いレートほど手強い相手が増えます。');
     const acts = el('div', 'dlg-actions');
     const cancel = btnIn(el('button', 'btn btn-ghost'), 'close', 'CANCEL');
     cancel.type = 'button';
@@ -271,11 +267,11 @@ function openCreate() {
     const ok = btnIn(el('button', 'btn btn-primary'), 'add', 'OPEN');
     ok.type = 'submit';
     acts.append(cancel, ok);
-    form.append(nameF, stakeF, note, onF, acts);
+    form.append(stakeF, note, acts);
     form.onsubmit = e => {
       e.preventDefault();
       const stake = form.querySelector('input[name=stake]:checked').value;
-      send({ t: 'createTable', name: nameI.value, stake, online: onI.checked });
+      send({ t: 'createTable', stake, online: multi });
       close();
     };
     box.append(form);
@@ -283,6 +279,26 @@ function openCreate() {
 }
 
 // ---------------- ネット対戦 ----------------
+// MULTI：部屋を作るか、部屋に入るかを選ぶ
+function openMulti() {
+  if (!isOnlineReady()) { openJoin(); return; } // 準備中の案内は openJoin が出す
+  dialog((box, close) => {
+    box.append(el('p', 'eyebrow', 'Multi Play'), el('h3', null, 'マルチプレイ'));
+    box.append(el('p', 'note', '部屋を作って友達を招くか、友達の部屋コードで入ります。'));
+    const acts = el('div', 'dlg-actions');
+    const c = btnIn(el('button', 'btn btn-ghost'), 'close', 'CANCEL');
+    c.onclick = close;
+    const mk = btnIn(el('button', 'btn btn-primary'), 'add', 'CREATE');
+    mk.id = 'b-multi-create';
+    mk.onclick = () => { close(); openCreate('multi'); };
+    const jn = btnIn(el('button', 'btn'), 'login', 'JOIN');
+    jn.id = 'b-multi-join';
+    jn.onclick = () => { close(); openJoin(); };
+    acts.append(c, jn, mk);
+    box.append(acts);
+  });
+}
+
 function openJoin(prefill = '') {
   dialog((box, close) => {
     box.append(el('p', 'eyebrow', 'Join Room'), el('h3', null, '部屋に入る'));
@@ -585,7 +601,7 @@ function bestSet(t) {
 function renderRoom(prev) {
   const t = S.table;
   if (!t) return;
-  $('#r-name').textContent = t.name;
+  $('#r-name').textContent = tableLabel(S.room && S.room.code);
   $('#r-stakes').textContent = `${fmt(t.sb)} / ${fmt(t.bb)}`;
   if (S.seenHand !== t.handNo) { S.seen.clear(); S.seenHand = t.handNo; }
   if (!S.L) computeLayout();
@@ -788,6 +804,35 @@ function renderActions(t) {
   const info = el('div', 'ab-info');
   bar.append(info);
   if (t.myHand) info.append(el('span', 'ab-hand', t.myHand));
+  // マルチプレイの開始待ち：ホストは「空席を CPU で埋める」を選んで START（座った人が2人以上で押せる）。2026-11-25 決定
+  if (t.waiting) {
+    const n = t.seats.filter(s => s && !s.isBot && !s.leaving && s.stack > 0).length;
+    const btns = el('div', 'ab-btns');
+    if (S.room && S.room.role === 'host') {
+      info.append(el('span', 'ab-note', `参加者を待っています（着席 ${n}人）。2人以上で開始できます。`));
+      const opt = el('label', 'online-opt');
+      const cb = el('input');
+      cb.type = 'checkbox';
+      cb.id = 'fill-bots';
+      cb.checked = S.fillBots !== false;
+      cb.onchange = () => { S.fillBots = cb.checked; };
+      opt.append(cb, el('span', null, '空席を CPU で埋める'));
+      const b = btnIn(el('button', 'btn btn-primary'), 'check', 'START');
+      b.id = 'b-start';
+      b.disabled = n < 2;
+      b.onclick = () => send({ t: 'startGame', fillBots: cb.checked });
+      btns.append(opt, b);
+    } else {
+      info.append(el('span', 'ab-note', `ホストの開始を待っています（着席 ${n}人）。`));
+      if (!me && S.room && S.room.role === 'guest') {
+        const b = btnIn(el('button', 'btn btn-primary'), 'chair', 'SIT');
+        b.onclick = () => openBuyIn(-1);
+        btns.append(b);
+      }
+    }
+    bar.append(btns);
+    return;
+  }
   if (!me) {
     if (S.room && S.room.role === 'guest') {
       info.append(el('span', 'ab-note', '座ると、次のハンドから CPU と入れ替わります。'));
@@ -947,8 +992,8 @@ function bind() {
     S.hello = { t: 'hello', name };
     send(S.hello);
   };
-  $('#b-new').onclick = openCreate;
-  $('#b-join').onclick = openJoin;
+  $('#b-single').onclick = () => openCreate('single');
+  $('#b-multi').onclick = openMulti;
   $('#b-invite').onclick = copyInvite;
   $('#b-back').onclick = () => send({ t: 'leaveTable' });
   $('#b-stand').onclick = () => send({ t: 'stand' });

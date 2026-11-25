@@ -1,6 +1,6 @@
 // オフライン用 Service Worker
 // 更新を公開するときは VERSION を変える（変えないと端末に古い版が残る）。
-const VERSION = 'nocturne-mobile-v14';
+const VERSION = 'nocturne-mobile-v15';
 const FONTS = 'nocturne-fonts-v1';
 
 const CORE = [

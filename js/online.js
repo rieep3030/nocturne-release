@@ -1,7 +1,7 @@
 // ネット対戦の土台（Firebase：匿名ログインと Realtime Database）。2026-11-20
 // ・Firebase の SDK は vendor/firebase/ に同梱（13.2.0）。ネット対戦を使うときだけ読み込む。
 // ・データの置き場所と読み書きの規則は database.rules.json と docs/firebase-setup.md を参照。
-//   rooms/<部屋コード>/meta            卓の名前・レート・ホスト・閉じたか・ホストの接続状態（ホストが書く）
+//   rooms/<部屋コード>/meta            レート・ホスト・閉じたか・ホストの接続状態（ホストが書く）
 //   rooms/<部屋コード>/members/<uid>   参加者の名前と接続状態（本人が書く）
 //   rooms/<部屋コード>/private/<uid>   その人向けの卓の状態（JSON 文字列）と精算（ホストが書く、本人だけが読む）
 //   rooms/<部屋コード>/inbox/<uid>     その人からホストへの依頼（本人が書く、ホストが読む）
@@ -34,7 +34,7 @@ export async function connect() {
 const roomRef = (code, path = '') => fb.ref(fb.db, `rooms/${code}${path ? '/' + path : ''}`);
 
 // 使われていない部屋コードを作って、ホストとして部屋を作る
-export async function createRoom({ name, sb, bb, hostName }) {
+export async function createRoom({ sb, bb, hostName }) { // 卓の名前は廃止（2026-11-25）
   await connect();
   for (let k = 0; k < 8; k++) {
     let code = '';
@@ -42,7 +42,7 @@ export async function createRoom({ name, sb, bb, hostName }) {
     const snap = await fb.get(roomRef(code, 'meta'));
     if (snap.exists()) continue;
     await fb.set(roomRef(code, 'meta'), {
-      host: fb.uid, hostName, name, sb, bb, createdAt: fb.serverTimestamp(), closed: false, hostOnline: true,
+      host: fb.uid, hostName, sb, bb, createdAt: fb.serverTimestamp(), closed: false, hostOnline: true,
     });
     return code;
   }
