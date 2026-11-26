@@ -701,10 +701,11 @@ export class TableStage {
   }
 
   // テッセラクトを画面上部の中央に置く：その画面位置へ向かう視線上、カメラから一定距離の点に置く。
-  // 大きさは卓の上にあったときと同じくらい（見かけの高さ約76px）を保ち、上部バーから卓の奥の縁にかかる位置になる
+  // 大きさは卓の画面の高さの24%（最小 56px）。上部バーから卓の奥の縁にかかる位置になる
+  // （2026-11-26：PC の大きな画面で小さすぎたため、上限 80px を外した。携帯の横画面では今までどおり約70px）
   placeTesseract(area) {
     const cam = this.cam;
-    const sizePx = Math.min(80, Math.max(56, area.height * 0.24));
+    const sizePx = Math.max(56, area.height * 0.24);
     const px = this.W / 2, py = Math.max(area.top / 2, sizePx / 2 + 4);
     const p = new THREE.Vector3((px / this.W) * 2 - 1, -(py / this.H) * 2 + 1, 0.5).unproject(cam);
     const dir = p.sub(cam.position).normalize();

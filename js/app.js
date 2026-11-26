@@ -113,6 +113,7 @@ function onMsg(m) {
       renderRoomBadge();
       $('#r-name').textContent = tableLabel(S.room && S.room.code);
       if (S.table) renderActions(S.table);
+      syncWakeLock();
       break;
     case 'kicked':
       S.kicked = true;
@@ -136,6 +137,27 @@ function showScreen(name) {
   stage?.setMode(name === 'gate' ? 'showcase' : name === 'room' ? 'table' : 'lounge');
   if (name === 'room') computeLayout();
   if (name !== 'room') { $('#logpanel').hidden = true; S.pileKey = null; }
+  syncWakeLock();
+}
+
+// マルチの卓にいる間は、放置で画面が消えないようにする（ホスト・参加者とも。I-05、2026-11-26 決定）。
+// 防げるのは自動の消灯だけ（電源ボタン・アプリの切り替えは防げない）。対応していない端末では何もしない。
+// ブラウザは画面が隠れると自動で手放すので、表示に戻ったときに取り直す（init の visibilitychange）
+// 取ったロックは S.wakeLock に置く（モジュールの読み込み中に showScreen が呼ばれても使えるように）
+function syncWakeLock() {
+  const want = S.screen === 'room' && !!S.room && !document.hidden;
+  if (want && !S.wakeLock && navigator.wakeLock) {
+    S.wakeLock = 'pending';
+    navigator.wakeLock.request('screen').then(l => {
+      S.wakeLock = l;
+      l.addEventListener('release', () => { if (S.wakeLock === l) S.wakeLock = null; });
+      if (!(S.screen === 'room' && S.room)) syncWakeLock(); // 取る間に卓を離れていたら手放す
+    }).catch(() => { S.wakeLock = null; });
+  } else if (!want && S.wakeLock && S.wakeLock !== 'pending') {
+    const l = S.wakeLock;
+    S.wakeLock = null;
+    l.release().catch(() => {});
+  }
 }
 
 function toast(text, kind = '') {
@@ -1061,6 +1083,7 @@ async function init() {
   // 2回目以降は名前の入力を省いてロビーへ
   if (LOCAL.hasPlayer()) { S.hello = { t: 'hello', name }; send(S.hello); }
   registerServiceWorker();
+  document.addEventListener('visibilitychange', syncWakeLock); // 画面に戻ったら取り直す（I-05）
 }
 
 // オフラインで動くように Service Worker を登録する（https か localhost のときだけ有効）
